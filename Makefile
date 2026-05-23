@@ -1,4 +1,4 @@
-.PHONY: test test-go test-sh test-python test-ts test-conformance \
+.PHONY: test test-go test-sh test-python test-ts test-conformance test-examples \
         build build-go build-ts \
         lint lint-sh lint-python lint-ts lint-go clean
 
@@ -21,7 +21,7 @@ build-ts:
 
 lint-sh:
 	@echo "=== shellcheck ==="
-	@shellcheck -s sh bash/test/run.sh
+	@shellcheck -s sh bash/test/run.sh examples/smoke.sh examples/docker-volume/workflow.sh
 
 lint-python:
 	@echo "=== ruff ==="
@@ -54,6 +54,10 @@ test-ts: build-ts
 test-conformance: build
 	@echo "=== conformance (shared harness) ==="
 	@python3 conformance/run.py
+
+test-examples: build-go
+	@echo "=== examples (smoke) ==="
+	@./examples/smoke.sh
 
 clean:
 	rm -rf typescript/dist typescript/node_modules go/mundane-bin go/conformance-driver

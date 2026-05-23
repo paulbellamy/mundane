@@ -4,6 +4,9 @@ typescript/dist/
 typescript/package-lock.json
 go/mundane-bin
 go/conformance-driver
+examples/**/node_modules/
+examples/**/dist/
+examples/**/package-lock.json
 
 # Python
 **/__pycache__/

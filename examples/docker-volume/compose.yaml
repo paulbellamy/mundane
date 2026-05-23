@@ -1,0 +1,14 @@
+# One workflow, one task file, living on a named volume that outlives the
+# container. The build context is the repo root so the Dockerfile can build
+# the mundane CLI from go/.
+services:
+  workflow:
+    build:
+      context: ../..
+      dockerfile: examples/docker-volume/Dockerfile
+    command: ["/data/task.db"]
+    volumes:
+      - task-data:/data
+
+volumes:
+  task-data:
