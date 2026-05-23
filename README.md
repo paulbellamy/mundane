@@ -93,24 +93,6 @@ cd typescript && npm install \
 ./interop-tests/run.sh                            # cross-runtime
 ```
 
-## Implementation notes
-
-- **Locking.** Go, Python, and bash (via the Go CLI) use `flock(2)`
-  directly. Node lacks a built-in flock binding, so the TS runtime spawns
-  a tiny `sh` helper that holds the actual `flock(LOCK_EX | LOCK_NB)` on
-  the SQLite file's fd. All four runtimes interoperate: a lock held by
-  one is visible to the others.
-- **Shell UX.** `eval "$(mundane init <db>)"` opens the DB on a file
-  descriptor, takes the flock in the calling shell, and defines `step`
-  and `nap` shell functions. The lock auto-releases when the shell
-  exits. Internal `__step` / `__nap` subcommands honor `MUNDANE_LOCK_FD`
-  and inherit the parent's lock without re-flocking.
-- **Trailing newlines.** Shell `step` (text encoding) preserves trailing
-  newlines exactly per the spec — the Go binary captures `os/exec`
-  stdout to a buffer and stores it verbatim.
-- **JSON interop.** Values written by Go/TS/Python (`encoding='json'`)
-  are emitted by `mundane get` as raw JSON text, so cross-runtime reads
-  work without an extra decode step.
-- **Duplicate names.** v1.1 changed `step foo` called twice in one body
-  from auto-suffix `foo#2` to a hard error. If you need many similar
-  steps, include an index/key in the name: `step "process-$i"`.
+Per-runtime details live in each runtime's README:
+[`go/`](./go/README.md), [`python/`](./python/README.md),
+[`typescript/`](./typescript/README.md).
