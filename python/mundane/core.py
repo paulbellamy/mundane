@@ -53,6 +53,14 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _duration_to_ms(duration: Union[str, int, float]) -> int:
+    if isinstance(duration, str):
+        return parse_duration_ms(duration)
+    if isinstance(duration, (int, float)):
+        return int(duration)
+    raise TypeError(f"duration must be str or number, got {type(duration).__name__}")
+
+
 def _check_json_roundtrip(value: Any) -> str:
     """Validate that value survives JSON.dumps -> JSON.loads -> deep equal.
 
@@ -222,6 +230,10 @@ class _Task:
             (error, finished, name),
         )
         self.conn.commit()
+        row = self.cache.get(name)
+        if row is not None:
+            row.status = "failed"
+            row.error = error
 
 
 class Context:
@@ -253,22 +265,14 @@ class Context:
         validate_name(name)
         self._task._check_seen(name)
         resolved = name
-        if isinstance(duration, str):
-            ms = parse_duration_ms(duration)
-        elif isinstance(duration, (int, float)):
-            ms = int(duration)
-        else:
-            raise TypeError(
-                f"duration must be str or number, got {type(duration).__name__}"
-            )
-
         row = self._task.cache.get(resolved)
         if row is not None and row.status == "done":
+            # Resume: duration arg is ignored (SPEC §6); don't parse it.
             wake_at = _decode_result(row)
             self._sleep_remaining(int(wake_at))
             return
         # absent / pending: compute wake_at, write json-number row, sleep.
-        wake_at = _now_ms() + ms
+        wake_at = _now_ms() + _duration_to_ms(duration)
         self._task._ensure_pending_row(resolved, "sleep", "json")
         self._task._commit_done(resolved, "json", str(wake_at))
         self._sleep_remaining(wake_at)
@@ -303,20 +307,12 @@ class Context:
         validate_name(name)
         self._task._check_seen(name)
         resolved = name
-        if isinstance(duration, str):
-            ms = parse_duration_ms(duration)
-        elif isinstance(duration, (int, float)):
-            ms = int(duration)
-        else:
-            raise TypeError(
-                f"duration must be str or number, got {type(duration).__name__}"
-            )
-
         row = self._task.cache.get(resolved)
         if row is not None and row.status == "done":
+            # Resume: duration arg is ignored (SPEC §6); don't parse it.
             wake_at = int(_decode_result(row))
         else:
-            wake_at = _now_ms() + ms
+            wake_at = _now_ms() + _duration_to_ms(duration)
             self._task._ensure_pending_row(resolved, "sleep", "json")
             self._task._commit_done(resolved, "json", str(wake_at))
         remaining = wake_at - _now_ms()

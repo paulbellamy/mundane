@@ -317,6 +317,19 @@ func TestSleepEpoch(t *testing.T) {
 	}
 }
 
+func TestSleepResumeIgnoresInvalidDuration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+	if err := Run(path, func(ctx *Ctx) error { return ctx.Sleep("n", "1ms") }); err != nil {
+		t.Fatalf("first sleep: %v", err)
+	}
+	// Resume: the duration arg is ignored, so a now-invalid string must not
+	// turn an otherwise-no-op resume into an error.
+	if err := Run(path, func(ctx *Ctx) error { return ctx.Sleep("n", "not-a-duration") }); err != nil {
+		t.Fatalf("resume must ignore the invalid duration arg, got %v", err)
+	}
+}
+
 func TestSchemaMismatch(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "task.db")

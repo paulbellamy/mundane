@@ -27,7 +27,7 @@ step() {
     [ "${1:-}" = "--" ] || { echo "mundane: step: expected '--' after name" >&2; exit 2; }
     shift
     _mundane_check_seen "$_name"
-    "$MUNDANE_EXE" __step "$MUNDANE_DB" "$_name" -- "$@"
+    "$MUNDANE_EXE" __step "$MUNDANE_DB" "$_name" -- "$@" || exit $?
 }
 
 nap() {
@@ -38,5 +38,5 @@ nap() {
         exit 2
     fi
     _mundane_check_seen "$_name"
-    "$MUNDANE_EXE" __nap "$MUNDANE_DB" "$_name" "$_dur"
+    "$MUNDANE_EXE" __nap "$MUNDANE_DB" "$_name" "$_dur" || exit $?
 }

@@ -17,9 +17,13 @@ import (
 // and emits. On cache hit it just emits the cached payload. Nonzero CMD exit
 // marks the step failed and exits with that code.
 func cmdStep(args []string) int {
-	if mundane.LockFDFromEnv() < 0 {
+	lockFD := mundane.LockFDFromEnv()
+	if lockFD < 0 {
 		return die(2, `__step requires MUNDANE_LOCK_FD (run via eval "$(mundane init <db>)")`)
 	}
+	// Don't leak the lock fd into CMD (or anything CMD spawns), which could
+	// otherwise keep the flock held after the shell exits (SPEC §3).
+	_ = mundane.SetCloseOnExec(lockFD)
 	if len(args) < 4 {
 		return die(2, "usage: __step <db> <name> -- CMD [args...]")
 	}

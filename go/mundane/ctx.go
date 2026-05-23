@@ -138,18 +138,20 @@ func (c *Ctx) Sleep(name, duration string) error {
 	if err := c.checkSeen(name); err != nil {
 		return err
 	}
-	ms, err := ParseDurationMs(duration)
-	if err != nil {
-		return err
-	}
 	var wakeAt int64
 	if cached, ok := c.cache[name]; ok && cached.Status == StatusDone {
+		// Resume: the duration arg is ignored (SPEC §6), so don't parse it —
+		// a now-invalid duration string must not fail an otherwise-no-op resume.
 		w, err := parseEpoch(cached.Result)
 		if err != nil {
 			return fmt.Errorf("decode sleep row %q: %w", name, err)
 		}
 		wakeAt = w
 	} else {
+		ms, err := ParseDurationMs(duration)
+		if err != nil {
+			return err
+		}
 		wakeAt = NowMs() + ms
 		if err := ensurePending(c.db, c.cache, name, KindSleep, EncJSON); err != nil {
 			return err

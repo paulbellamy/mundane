@@ -102,13 +102,15 @@ function makeAcquired(child: ChildProcess): AcquiredLock {
             // ignore
           }
         }, 500);
+        // SIGKILL forces the helper to exit, which fires "exit" (and drops the
+        // flock). We resolve on that real exit — never on this timer — so the
+        // lock is only reported released once the OS has actually dropped it.
         const kill = setTimeout(() => {
           try {
             child.kill("SIGKILL");
           } catch {
             // ignore
           }
-          done();
         }, 1500);
         child.once("exit", () => {
           clearTimeout(term);

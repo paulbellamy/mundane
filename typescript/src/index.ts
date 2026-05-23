@@ -237,13 +237,14 @@ class ContextImpl implements Context {
   async sleep(name: string, duration: string | number): Promise<void> {
     validateName(name);
     this.task.checkSeen(name);
-    const ms = parseDurationMs(duration);
     const cached = this.task.cache.get(name);
     let wakeAt: number;
     if (cached && cached.status === "done") {
+      // Resume: the duration arg is ignored (SPEC §6), so don't parse it — a
+      // now-invalid duration string must not fail an otherwise-no-op resume.
       wakeAt = Number(decodeResult(cached));
     } else {
-      wakeAt = Date.now() + ms;
+      wakeAt = Date.now() + parseDurationMs(duration);
       this.task.ensurePendingRow(name, "sleep", "json");
       this.task.commitDone(name, "json", String(wakeAt));
     }

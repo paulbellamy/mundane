@@ -164,6 +164,36 @@ test("sleep persists wake_at and resumes", async () => {
   }
 });
 
+test("sleep resume ignores an invalid duration", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    await run(path, async (ctx: any) => {
+      await ctx.sleep("n", "1ms");
+    });
+    // Resume ignores the duration arg, so an invalid string must not throw.
+    await run(path, async (ctx: any) => {
+      await ctx.sleep("n", "not-a-duration");
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test("sequential runs on the same file do not spuriously lock", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    // Back-to-back runs: if release() resolved before the helper actually
+    // dropped the flock, a later run would throw MundaneLockedError.
+    for (let i = 0; i < 5; i++) {
+      await run(path, async (ctx: any) => ctx.step(`s${i}`, async () => i));
+    }
+    const done = readSteps(path).filter((s) => s.status === "done");
+    assert.equal(done.length, 5);
+  } finally {
+    cleanup();
+  }
+});
+
 test("non-JSON value raises MundaneSerializationError", async () => {
   const { path, cleanup } = newDb();
   try {

@@ -146,6 +146,12 @@ class Sleep(unittest.TestCase):
             elapsed2 = time.time() - t0
             self.assertLess(elapsed2, 0.2)
 
+    def test_resume_ignores_invalid_duration(self):
+        with TempDB() as path:
+            mundane.run(path, lambda ctx: ctx.sleep("n", "1ms"))
+            # Resume ignores the duration arg, so an invalid string is a no-op.
+            mundane.run(path, lambda ctx: ctx.sleep("n", "not-a-duration"))
+
     def test_sleep_remaining_on_resume(self):
         """If we crash mid-sleep, next run should sleep only the remaining time."""
         with TempDB() as path:
