@@ -1,19 +1,24 @@
 /* Basic tests for @mundane/core */
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
-import { run, MundaneLockedError, MundaneSerializationError, MundaneSchemaError } from "../src/index";
-import { status, steps, getResult } from "../src/inspect";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+import { MundaneLockedError, MundaneSerializationError, run } from "../src/index";
+import { getResult, status, steps } from "../src/inspect";
 
 function newDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "mundane-test-"));
   const path = join(dir, "task.db");
   return {
     path,
-    cleanup: () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} },
+    cleanup: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    },
   };
 }
 
@@ -22,8 +27,14 @@ test("three steps execute once; second run uses cache", async () => {
   try {
     const calls: string[] = [];
     const wf = async (ctx: any) => {
-      const a = await ctx.step("a", async () => { calls.push("a"); return 1; });
-      const b = await ctx.step("b", async () => { calls.push("b"); return { v: a + 1 }; });
+      const a = await ctx.step("a", async () => {
+        calls.push("a");
+        return 1;
+      });
+      const b = await ctx.step("b", async () => {
+        calls.push("b");
+        return { v: a + 1 };
+      });
       return b;
     };
 
@@ -50,8 +61,14 @@ test("step is cached after a body throws", async () => {
     );
     const calls: string[] = [];
     const r = await run(path, async (ctx: any) => {
-      const v = await ctx.step("a", async () => { calls.push("a"); return 0; });
-      const w = await ctx.step("b", async () => { calls.push("b"); return v + 1; });
+      const v = await ctx.step("a", async () => {
+        calls.push("a");
+        return 0;
+      });
+      const w = await ctx.step("b", async () => {
+        calls.push("b");
+        return v + 1;
+      });
       return w;
     });
     assert.equal(r, 43);
@@ -94,13 +111,17 @@ test("sleep persists wake_at and resumes", async () => {
   const { path, cleanup } = newDb();
   try {
     const t0 = Date.now();
-    await run(path, async (ctx: any) => { await ctx.sleep("nap", "30ms"); });
+    await run(path, async (ctx: any) => {
+      await ctx.sleep("nap", "30ms");
+    });
     const e1 = Date.now() - t0;
     assert.ok(e1 < 500, `first sleep should be quick: ${e1}ms`);
     assert.ok(e1 >= 25, `first sleep should be ~30ms: ${e1}ms`);
     const t1 = Date.now();
     // second run sees the wake_at in the past, returns immediately
-    await run(path, async (ctx: any) => { await ctx.sleep("nap", "10s"); });
+    await run(path, async (ctx: any) => {
+      await ctx.sleep("nap", "10s");
+    });
     const e2 = Date.now() - t1;
     assert.ok(e2 < 200, `second sleep should be near-instant: ${e2}ms`);
   } finally {
@@ -126,7 +147,9 @@ test("locked task throws MundaneLockedError", async () => {
   const { path, cleanup } = newDb();
   try {
     let unblock!: () => void;
-    const blocker = new Promise<void>((r) => { unblock = r; });
+    const blocker = new Promise<void>((r) => {
+      unblock = r;
+    });
 
     const first = run(path, async (ctx: any) => {
       await ctx.step("init", async () => 0);

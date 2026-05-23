@@ -1,5 +1,6 @@
 """Basic tests for mundane (Python)."""
 
+import contextlib
 import multiprocessing as mp
 import os
 import sqlite3
@@ -23,10 +24,8 @@ class TempDB:
 
     def __exit__(self, *_):
         for ext in ("", "-wal", "-shm", ".lock"):
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.remove(self.path + ext)
-            except FileNotFoundError:
-                pass
 
 
 class HappyPath(unittest.TestCase):

@@ -5,8 +5,8 @@
  * not "1" is a hard error.
  */
 
-import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import type Database from "better-sqlite3";
 import { MundaneSchemaError } from "./errors";
 
 export const SCHEMA_VERSION = "1";
@@ -43,14 +43,12 @@ export function bootstrap(db: Database.Database): void {
   // Pre-check: if mundane_meta exists with wrong schema_version, bail before
   // running CREATE INDEX (which assumes columns we only promise at v1).
   const existing = db
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='mundane_meta'",
-    )
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mundane_meta'")
     .get();
   if (existing) {
-    const row = db
-      .prepare("SELECT value FROM mundane_meta WHERE key='schema_version'")
-      .get() as { value?: string } | undefined;
+    const row = db.prepare("SELECT value FROM mundane_meta WHERE key='schema_version'").get() as
+      | { value?: string }
+      | undefined;
     if (row && row.value !== SCHEMA_VERSION) {
       throw new MundaneSchemaError(
         `schema_version is ${JSON.stringify(row.value)}, expected "${SCHEMA_VERSION}"`,
@@ -63,25 +61,27 @@ export function bootstrap(db: Database.Database): void {
     db.exec(CREATE_META);
     db.exec(CREATE_STEPS);
     db.exec(CREATE_INDEX);
-    db.prepare(
-      "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)",
-    ).run(SCHEMA_VERSION);
-    db.prepare(
-      "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)",
-    ).run(randomUUID());
-    db.prepare(
-      "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)",
-    ).run(new Date().toISOString());
+    db.prepare("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)").run(
+      SCHEMA_VERSION,
+    );
+    db.prepare("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)").run(
+      randomUUID(),
+    );
+    db.prepare("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)").run(
+      new Date().toISOString(),
+    );
     db.exec("COMMIT");
   } catch (e) {
-    try { db.exec("ROLLBACK"); } catch {}
+    try {
+      db.exec("ROLLBACK");
+    } catch {}
     throw e;
   }
 
   // Final check.
-  const row = db
-    .prepare("SELECT value FROM mundane_meta WHERE key='schema_version'")
-    .get() as { value?: string } | undefined;
+  const row = db.prepare("SELECT value FROM mundane_meta WHERE key='schema_version'").get() as
+    | { value?: string }
+    | undefined;
   if (!row || row.value !== SCHEMA_VERSION) {
     throw new MundaneSchemaError(
       `schema_version is ${JSON.stringify(row?.value)}, expected "${SCHEMA_VERSION}"`,

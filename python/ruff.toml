@@ -1,0 +1,20 @@
+target-version = "py38"
+line-length = 100
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "SIM",  # simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "UP006", # use PEP 585 — would break Python 3.8 support
+    "UP007", # use X | Y — would break Python 3.8 support
+    "UP035", # deprecated typing imports — same reason
+    "UP045", # X | None — same reason
+]

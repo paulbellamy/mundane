@@ -5,7 +5,7 @@
  * (`run` is library-only in TS — workflow bodies are JS.)
  */
 
-import { status, steps, getResult } from "./inspect";
+import { getResult, status, steps } from "./inspect";
 
 function usage(): never {
   process.stderr.write(
@@ -49,7 +49,7 @@ function main(argv: string[]): number {
     } else if (typeof v === "string") {
       process.stdout.write(v);
     } else {
-      process.stdout.write(JSON.stringify(v) + "\n");
+      process.stdout.write(`${JSON.stringify(v)}\n`);
     }
     return 0;
   }

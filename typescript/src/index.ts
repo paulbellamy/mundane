@@ -10,31 +10,25 @@
  */
 
 import Database from "better-sqlite3";
-import { acquireLock, type AcquiredLock } from "./lock";
-import { bootstrap } from "./schema";
-import { validateName, Disambiguator } from "./names";
 import { parseDurationMs } from "./duration";
 import {
   MundaneLockedError,
-  MundaneSerializationError,
   MundaneSchemaError,
+  MundaneSerializationError,
   MundaneStepFailedError,
 } from "./errors";
+import { type AcquiredLock, acquireLock } from "./lock";
+import { Disambiguator, validateName } from "./names";
+import { bootstrap } from "./schema";
 
 export {
   MundaneLockedError,
-  MundaneSerializationError,
   MundaneSchemaError,
+  MundaneSerializationError,
   MundaneStepFailedError,
 };
 
-export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [k: string]: Json };
+export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
 interface StepRow {
   id: number;
@@ -56,9 +50,7 @@ function checkJsonRoundtrip(value: unknown): string {
   try {
     text = JSON.stringify(value);
   } catch (e) {
-    throw new MundaneSerializationError(
-      `value is not JSON-serializable: ${(e as Error).message}`,
-    );
+    throw new MundaneSerializationError(`value is not JSON-serializable: ${(e as Error).message}`);
   }
   if (text === undefined) {
     // JSON.stringify returns undefined for top-level undefined/function/symbol
@@ -79,12 +71,7 @@ function checkJsonRoundtrip(value: unknown): string {
 
 function deepDiff(a: unknown, b: unknown, path: string): string | null {
   if (a === b) return null;
-  if (
-    a === null ||
-    b === null ||
-    typeof a !== "object" ||
-    typeof b !== "object"
-  ) {
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") {
     // Special-case: NaN/Infinity get encoded as null by JSON, mismatch.
     return path || "(root)";
   }
@@ -121,8 +108,7 @@ function deepDiff(a: unknown, b: unknown, path: string): string | null {
 function decodeResult(row: StepRow): unknown {
   if (row.result === null) return null;
   // better-sqlite3 returns BLOB as Buffer, TEXT as string. We store TEXT-y data.
-  const text =
-    typeof row.result === "string" ? row.result : row.result.toString("utf8");
+  const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
   switch (row.encoding) {
     case "json":
       return JSON.parse(text);
@@ -194,9 +180,7 @@ class TaskState {
   commitFailed(name: string, errMsg: string): void {
     const finished = new Date().toISOString();
     this.db
-      .prepare(
-        "UPDATE mundane_steps SET status='failed', error=?, finished_at=? WHERE name=?",
-      )
+      .prepare("UPDATE mundane_steps SET status='failed', error=?, finished_at=? WHERE name=?")
       .run(errMsg, finished, name);
     const row = this.cache.get(name)!;
     row.status = "failed";
@@ -248,10 +232,7 @@ class ContextImpl implements Context {
   }
 }
 
-export async function run<T>(
-  path: string,
-  fn: (ctx: Context) => Promise<T> | T,
-): Promise<T> {
+export async function run<T>(path: string, fn: (ctx: Context) => Promise<T> | T): Promise<T> {
   let lock: AcquiredLock;
   try {
     lock = await acquireLock(path);

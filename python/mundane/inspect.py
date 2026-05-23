@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ._schema import SCHEMA_VERSION
 
@@ -86,10 +86,7 @@ def get_result(path: str, name: str) -> Any:
         if result is None:
             return None
         # SQLite may give us bytes or str depending on storage; normalise.
-        if isinstance(result, bytes):
-            text = result.decode("utf-8")
-        else:
-            text = result
+        text = result.decode("utf-8") if isinstance(result, bytes) else result
         if enc == "json":
             return json.loads(text)
         if enc == "text":

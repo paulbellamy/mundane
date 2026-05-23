@@ -4,14 +4,14 @@ One workflow run is one SQLite file. Crash, re-invoke, resume.
 """
 
 from .core import (
-    run,
-    arun,
     LockedError,
-    SerializationError,
     SchemaError,
+    SerializationError,
     StepFailedError,
+    arun,
+    run,
 )
-from .inspect import status, steps, get_result
+from .inspect import get_result, status, steps
 
 __all__ = [
     "run",

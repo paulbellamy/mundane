@@ -59,7 +59,7 @@ await run("task.db", async (ctx) => {
 
 ```sh
 make test       # bash + python + typescript + interop
-make lint       # shellcheck on every sh script
+make lint       # shellcheck (bash) + ruff (python) + biome (typescript)
 ```
 
 Or by runtime:
@@ -72,8 +72,8 @@ cd typescript && npm install \
 ./interop-tests/run.sh                            # cross-runtime
 ```
 
-CI (GitHub Actions) runs all of the above plus shellcheck on every push
-and pull request.
+CI (GitHub Actions) runs the test matrix plus three lint jobs
+(shellcheck, ruff, biome) on every push and pull request.
 
 ## Implementation notes
 

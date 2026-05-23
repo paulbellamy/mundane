@@ -13,7 +13,7 @@
  * The helper is portable POSIX: requires `sh` and `flock` on PATH.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { MundaneLockedError } from "./errors";
 
 const HELPER_SCRIPT = `
@@ -30,11 +30,9 @@ export interface AcquiredLock {
 
 export function acquireLock(path: string): Promise<AcquiredLock> {
   return new Promise<AcquiredLock>((resolve, reject) => {
-    const child: ChildProcess = spawn(
-      "sh",
-      ["-c", HELPER_SCRIPT, "--", path],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
+    const child: ChildProcess = spawn("sh", ["-c", HELPER_SCRIPT, "--", path], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
 
     let stdout = "";
     let stderr = "";

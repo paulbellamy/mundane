@@ -1,10 +1,21 @@
-.PHONY: test test-bash test-python test-ts test-interop build-ts lint clean
+.PHONY: test test-bash test-python test-ts test-interop build-ts \
+        lint lint-bash lint-python lint-ts clean
 
 test: test-bash test-python test-ts test-interop
 
-lint:
+lint: lint-bash lint-python lint-ts
+
+lint-bash:
 	@echo "=== shellcheck ==="
 	@shellcheck -s sh bash/mundane bash/test/run.sh interop-tests/run.sh
+
+lint-python:
+	@echo "=== ruff ==="
+	@cd python && ruff check .
+
+lint-ts: build-ts
+	@echo "=== biome ==="
+	@cd typescript && npx biome check src/ test/
 
 test-bash:
 	@echo "=== bash ==="

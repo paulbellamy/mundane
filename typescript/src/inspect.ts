@@ -3,17 +3,17 @@
  */
 
 import Database from "better-sqlite3";
-import { SCHEMA_VERSION } from "./schema";
 import { MundaneSchemaError } from "./errors";
+import { SCHEMA_VERSION } from "./schema";
 
 function openRO(path: string): Database.Database {
   return new Database(path, { readonly: true, fileMustExist: true });
 }
 
 function checkSchema(db: Database.Database): void {
-  const row = db
-    .prepare("SELECT value FROM mundane_meta WHERE key='schema_version'")
-    .get() as { value?: string } | undefined;
+  const row = db.prepare("SELECT value FROM mundane_meta WHERE key='schema_version'").get() as
+    | { value?: string }
+    | undefined;
   if (!row || row.value !== SCHEMA_VERSION) {
     throw new MundaneSchemaError(
       `schema_version is ${JSON.stringify(row?.value)}, expected "${SCHEMA_VERSION}"`,
@@ -44,9 +44,8 @@ export function status(path: string): Status {
       .prepare("SELECT status, COUNT(*) AS c FROM mundane_steps GROUP BY status")
       .all() as { status: string; c: number }[];
     const byStatus = new Map(counts.map((r) => [r.status, r.c]));
-    const total = (byStatus.get("done") ?? 0) +
-      (byStatus.get("pending") ?? 0) +
-      (byStatus.get("failed") ?? 0);
+    const total =
+      (byStatus.get("done") ?? 0) + (byStatus.get("pending") ?? 0) + (byStatus.get("failed") ?? 0);
     return {
       path,
       task_id: byKey.get("task_id"),
@@ -92,9 +91,7 @@ export function getResult(path: string, name: string): unknown {
   try {
     checkSchema(db);
     const row = db
-      .prepare(
-        "SELECT encoding, result, status FROM mundane_steps WHERE name = ?",
-      )
+      .prepare("SELECT encoding, result, status FROM mundane_steps WHERE name = ?")
       .get(name) as
       | { encoding: string; result: Buffer | string | null; status: string }
       | undefined;
@@ -103,8 +100,7 @@ export function getResult(path: string, name: string): unknown {
       throw new Error(`step ${JSON.stringify(name)} is ${row.status}, not done`);
     }
     if (row.result === null) return null;
-    const text =
-      typeof row.result === "string" ? row.result : row.result.toString("utf8");
+    const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
     switch (row.encoding) {
       case "json":
         return JSON.parse(text);

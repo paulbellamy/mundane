@@ -19,6 +19,7 @@
     "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.4.0"

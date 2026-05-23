@@ -4,12 +4,11 @@ The schema is pinned to v1. Opening a file whose meta.schema_version is
 not '1' is a hard error.
 """
 
-SCHEMA_VERSION = "1"
-
-# Name regex per spec section 5.
-# ^[A-Za-z0-9][A-Za-z0-9._-]*$
 import re
 
+SCHEMA_VERSION = "1"
+
+# Name regex per spec section 5: ^[A-Za-z0-9][A-Za-z0-9._-]*$
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]*$")
 
 

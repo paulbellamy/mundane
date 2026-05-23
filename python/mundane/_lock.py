@@ -8,6 +8,7 @@ separate lock-spaces on Linux, so an flock on the DB file does not interfere
 with SQLite's own locking.
 """
 
+import contextlib
 import fcntl
 import os
 from typing import Optional
@@ -33,14 +34,10 @@ class FileLock:
 
     def release(self) -> None:
         if self._fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 fcntl.flock(self._fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-            try:
+            with contextlib.suppress(OSError):
                 os.close(self._fd)
-            except OSError:
-                pass
             self._fd = None
 
     def __enter__(self) -> "FileLock":

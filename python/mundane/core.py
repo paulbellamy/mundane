@@ -310,12 +310,12 @@ class Context:
             await asyncio.sleep(remaining / 1000.0)
 
 
-def _open_task(path: str) -> "tuple[FileLock, sqlite3.Connection, _Task]":
+def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
     """Acquire lock, open DB, bootstrap schema, build cache. Caller owns cleanup."""
     lock = FileLock(path)
     try:
         lock.acquire()
-    except BlockingIOError as e:
+    except BlockingIOError:
         raise LockedError(
             f"{path}: locked by another process"
         ) from None

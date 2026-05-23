@@ -5,13 +5,11 @@
  * same task body get "#2", "#3", ... appended in caller order.
  */
 
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._\-]*$/;
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function validateName(name: string): void {
   if (typeof name !== "string" || !NAME_RE.test(name)) {
-    throw new Error(
-      `invalid step name ${JSON.stringify(name)}: must match ${NAME_RE.source}`,
-    );
+    throw new Error(`invalid step name ${JSON.stringify(name)}: must match ${NAME_RE.source}`);
   }
 }
 
