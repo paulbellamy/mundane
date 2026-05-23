@@ -74,6 +74,17 @@ await run("task.db", async (ctx) => {
 });
 ```
 
+## Examples
+
+Runnable, offline workflows in [`examples/`](./examples) — the durability
+story end to end (run it, kill it partway, re-invoke, watch it resume):
+
+- [`examples/etl-typescript`](./examples/etl-typescript) — crash-resumable ETL.
+- [`examples/ai-pipeline-python`](./examples/ai-pipeline-python) — cache LLM
+  calls so a resume never re-pays for completed ones.
+- [`examples/docker-volume`](./examples/docker-volume) — task file on a Docker
+  volume that outlives the container.
+
 ## Running the tests
 
 ```sh
