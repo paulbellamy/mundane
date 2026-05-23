@@ -6,7 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { MundaneLockedError, MundaneSerializationError, run } from "../src/index";
+import {
+  MundaneDuplicateStepError,
+  MundaneLockedError,
+  MundaneSerializationError,
+  run,
+} from "../src/index";
 import { getResult, status, steps } from "../src/inspect";
 
 function newDb(): { path: string; cleanup: () => void } {
@@ -91,17 +96,19 @@ test("invalid step name is rejected", async () => {
   }
 });
 
-test("duplicate names get '#2', '#3' appended", async () => {
+test("duplicate step name raises MundaneDuplicateStepError", async () => {
   const { path, cleanup } = newDb();
   try {
-    const r = await run(path, async (ctx: any) => [
-      await ctx.step("x", async () => 1),
-      await ctx.step("x", async () => 2),
-      await ctx.step("x", async () => 3),
-    ]);
-    assert.deepEqual(r, [1, 2, 3]);
+    await assert.rejects(
+      run(path, async (ctx: any) => {
+        await ctx.step("x", async () => 1);
+        await ctx.step("x", async () => 2);
+      }),
+      (e: any) => e instanceof MundaneDuplicateStepError && e.stepName === "x",
+    );
+    // First step still committed before the dup raised.
     const names = steps(path).map((s: any) => s.name);
-    assert.deepEqual(names, ["x", "x#2", "x#3"]);
+    assert.deepEqual(names, ["x"]);
   } finally {
     cleanup();
   }

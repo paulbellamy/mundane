@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, Set, Union
 
 from ._duration import parse_duration_ms
 from ._lock import FileLock
@@ -26,6 +26,14 @@ class SerializationError(Exception):
 
 class SchemaError(Exception):
     """Raised when meta.schema_version doesn't equal 1."""
+
+
+class DuplicateStepError(Exception):
+    """Raised when the same step name is used twice in one task body."""
+
+    def __init__(self, name: str):
+        super().__init__(f"duplicate step name: {name}")
+        self.name = name
 
 
 class StepFailedError(Exception):
@@ -128,14 +136,14 @@ def _decode_result(row: _StepRow) -> Any:
 
 
 class _Task:
-    """Per-invocation task state: open connection, cache, name disambiguation."""
+    """Per-invocation task state: open connection, cache, seen-name set."""
 
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
         # cache: name -> _StepRow
         self.cache: Dict[str, _StepRow] = {}
-        # disambig: base_name -> count_seen_so_far
-        self.disambig: Dict[str, int] = {}
+        # Per-run set of step names already used; duplicates raise.
+        self.seen: Set[str] = set()
         self._load_cache()
 
     def _load_cache(self) -> None:
@@ -155,10 +163,10 @@ class _Task:
             )
             self.cache[sr.name] = sr
 
-    def _next_name(self, base: str) -> str:
-        n = self.disambig.get(base, 0) + 1
-        self.disambig[base] = n
-        return base if n == 1 else f"{base}#{n}"
+    def _check_seen(self, name: str) -> None:
+        if name in self.seen:
+            raise DuplicateStepError(name)
+        self.seen.add(name)
 
     def _ensure_pending_row(self, name: str, kind: str, encoding: str) -> _StepRow:
         """Insert a pending row if not present; return the (possibly fresh) row."""
@@ -224,7 +232,8 @@ class Context:
 
     def step(self, name: str, fn: Callable[[], Any]) -> Any:
         validate_name(name)
-        resolved = self._task._next_name(name)
+        self._task._check_seen(name)
+        resolved = name
         row = self._task.cache.get(resolved)
         if row is not None and row.status == "done":
             return _decode_result(row)
@@ -241,7 +250,8 @@ class Context:
 
     def sleep(self, name: str, duration: Union[str, int, float]) -> None:
         validate_name(name)
-        resolved = self._task._next_name(name)
+        self._task._check_seen(name)
+        resolved = name
         if isinstance(duration, str):
             ms = parse_duration_ms(duration)
         elif isinstance(duration, (int, float)):
@@ -272,7 +282,8 @@ class Context:
 
     async def astep(self, name: str, fn: Callable[[], Awaitable[Any]]) -> Any:
         validate_name(name)
-        resolved = self._task._next_name(name)
+        self._task._check_seen(name)
+        resolved = name
         row = self._task.cache.get(resolved)
         if row is not None and row.status == "done":
             return _decode_result(row)
@@ -288,7 +299,8 @@ class Context:
 
     async def asleep(self, name: str, duration: Union[str, int, float]) -> None:
         validate_name(name)
-        resolved = self._task._next_name(name)
+        self._task._check_seen(name)
+        resolved = name
         if isinstance(duration, str):
             ms = parse_duration_ms(duration)
         elif isinstance(duration, (int, float)):

@@ -1,11 +1,20 @@
-# Mundane — Spec v1
+# Mundane — Spec v1.1
 
 A tiny durable-execution library. One workflow run is one SQLite file. Crash,
 re-invoke, resume. No daemon, no broker, no scheduler — bring your own cron.
 
-Three runtimes ship from the same repo: a POSIX shell script (`mundane`), a
-TypeScript package (`@mundane/core`), and a Python package (`mundane`). All
-three read and write the same on-disk format and interoperate row-for-row.
+Four runtimes ship from the same repo: a single `mundane` CLI binary (Go;
+also exposes a Go SDK), a TypeScript package (`@mundane/core`), and a
+Python package (`mundane`). The shell UX is the same binary used via
+`eval "$(mundane init <db>)"`. All four read and write the same on-disk
+format and interoperate row-for-row.
+
+**v1.1 changes from v1**:
+- §5 auto-disambig (`#N`) removed. Duplicate step names in one task body
+  are a hard error.
+- §6 bash interface is now `eval "$(mundane init <db>)"` + `step`/`nap`
+  helpers in the caller's shell (formerly `mundane run <db> -- <body>`).
+- §10 Go interface added (4th peer runtime).
 
 ---
 
@@ -17,10 +26,10 @@ resume the same task. If they open different files they are different tasks.
 Mundane does not canonicalize, resolve, or otherwise interpret the path —
 opening "the same file twice" is the caller's responsibility.
 
-A task is a sequence of **steps**. A step has a stable name (caller-supplied or
-auto-disambiguated, §6) and produces a JSON result. Step results are durable:
-once a step has committed a result, every subsequent attempt of the task
-returns that result without re-executing the body.
+A task is a sequence of **steps**. A step has a caller-supplied name (unique
+within one task body, §5) and produces a JSON result. Step results are
+durable: once a step has committed a result, every subsequent attempt of
+the task returns that result without re-executing the body.
 
 A task **completes** when the runtime body returns normally. A task **fails**
 when the body throws / exits nonzero with no in-flight retry strategy left
@@ -48,7 +57,7 @@ CREATE TABLE mundane_meta (
 
 CREATE TABLE mundane_steps (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  name         TEXT NOT NULL,            -- caller name, possibly suffixed '#N'
+  name         TEXT NOT NULL,            -- caller-supplied; unique per task
   kind         TEXT NOT NULL,            -- 'step' | 'sleep'
   encoding     TEXT NOT NULL,            -- 'json' | 'text' | 'b64' | 'epoch'
   result       BLOB,                     -- payload per encoding; NULL while pending
@@ -126,54 +135,76 @@ do not re-query between steps.
 ## 5. Step names & idempotency keys
 
 Step names must match `^[A-Za-z0-9][A-Za-z0-9._-]*$` (strict ASCII identifier
-with `.`, `_`, `-`). No spaces, colons, hashes, slashes, unicode. The runtime
+with `.`, `_`, `-`). No spaces, colons, slashes, unicode. The runtime
 rejects an invalid name with a hard error before touching the DB.
 
-The same name used twice in a single task body gets `#2`, `#3`, … appended on
-the second-and-later occurrences (in caller order). The `#` is reserved — it
-cannot appear in a user-supplied name, which is why the regex excludes it.
+**Names must be unique within one task body.** Calling `step` or `sleep`
+twice with the same name in one invocation is a hard error
+(`DuplicateStepError`; exit code 2 from the CLI). Each runtime keeps a
+per-run "seen" set; on resume the set starts empty, so the first call to
+a name in a resumed body cache-hits the existing row as usual — only a
+*second* call within the *same* body errors.
+
+If you need many similar steps (e.g. inside a loop), embed an index or
+key in the name: `step "process-$i"`, `ctx.step(f"process-{i}", …)`.
 
 The on-disk **idempotency key** is `task_id ":" name`. Because names cannot
 contain `:` and `task_id` is a UUID, the key is unambiguous.
 
 ## 6. Bash interface
 
-Distribution: a single POSIX `sh` script `mundane` (no bashisms — no `local`,
-no `[[ ]]`, no arrays). Hard dep on the `sqlite3` CLI on `$PATH`. All internal
-variables are prefixed `_mundane_` to avoid clobbering the caller's
-environment.
-
-Usage:
+Distribution: a single `mundane` Go binary. The shell UX is the well-known
+`eval "$(tool init)"` pattern: at the top of any POSIX shell script, run
 
 ```sh
-mundane run <task.db> -- <command> [args...]
+eval "$(mundane init <task.db>)"
 ```
 
-`<command>` is the workflow body — a shell function, a script, anything. It
-runs in the *caller's* shell environment with three functions injected:
+which opens the DB on a file descriptor, takes the flock, bootstraps the
+schema, and defines `step` / `nap` shell functions in the caller's shell.
+The lock is held until the calling shell exits.
+
+```sh
+#!/bin/sh
+eval "$(mundane init task.db)"
+step fetch -- curl -fsS https://api/x
+nap  cool 5m
+step --b64 binary -- ./produce-bytes
+step notify -- ./send-email.sh
+```
+
+The emitted helpers:
 
 - `step NAME -- CMD [ARGS...]` — run `CMD` once; cache stdout as `text`.
-  Stdout of the cached or fresh run is re-emitted to *our* stdout. Stderr is
-  passed through live and not cached. Nonzero exit from `CMD` marks the step
-  `failed` and aborts the task with that exit code.
-- `step --b64 NAME -- CMD [ARGS...]` — same, but cache as `b64`. Useful for
-  binary or newline-sensitive payloads. Emit decodes transparently.
-- `nap NAME DURATION` — sleep `DURATION` (e.g. `30s`, `5m`, `2h`). First call
-  computes `wake_at = now + DURATION`, writes an `epoch` row, then sleeps
-  `wake_at - now`. Resumption sleeps the remaining time. SIGINT/SIGTERM
-  during the sleep kills the process; the row persists; next invocation
-  resumes.
+  Stdout of the cached or fresh run is re-emitted to *our* stdout. Stderr
+  is passed through live and not cached. Nonzero exit from `CMD` marks
+  the step `failed` and exits the calling shell with that exit code.
+- `step --b64 NAME -- CMD [ARGS...]` — same, but cache as `b64`. Useful
+  for binary or newline-sensitive payloads. Emit decodes transparently.
+- `nap NAME DURATION` — sleep `DURATION` (e.g. `30s`, `5m`, `2h`). First
+  call computes `wake_at = now + DURATION`, writes an `epoch` row, then
+  sleeps `wake_at - now`. Resumption sleeps the remaining time.
+  SIGINT/SIGTERM during the sleep kills the process; the row persists;
+  the next invocation resumes.
 
-Exit codes from `mundane run`:
+Exit codes:
 - `0`: body completed.
-- `1`: body or a step failed.
+- `1`: a non-step error (I/O, etc.).
+- `2`: usage error, invalid name, duplicate step name, schema mismatch.
 - `75`: another process holds the lock.
-- `2`: usage error (bad args, invalid name, schema mismatch).
+- Any other code: propagated verbatim from a failing `step` command.
 
-Auxiliary subcommands (all read-only, no lock contention):
+Auxiliary subcommands (all read-only, no lock contention; no `eval`
+needed):
 - `mundane status <task.db>` — one-line summary.
-- `mundane steps <task.db>` — table of `id name kind status started finished`.
-- `mundane get <task.db> <name>` — print a cached result (decoded).
+- `mundane steps  <task.db>` — table of `id name kind status started finished`.
+- `mundane get    <task.db> <name>` — print a cached result (decoded).
+
+Internal subcommands (called by the emitted `step`/`nap` helpers; refuse
+to run without `MUNDANE_LOCK_FD` in the environment):
+- `mundane __bootstrap <task.db>`
+- `mundane __step [--b64] <task.db> <name> -- CMD [args...]`
+- `mundane __nap  <task.db> <name> <duration>`
 
 ## 7. TypeScript interface
 
@@ -211,7 +242,9 @@ catches `Date`, `undefined`, `BigInt`, `Map`, `Set`, functions, and circular
 refs at the call site instead of silently corrupting the cache.
 
 `run` returns the body's return value. Lock contention throws
-`MundaneLockedError` (no retry — the caller decides).
+`MundaneLockedError` (no retry — the caller decides). Calling `ctx.step` or
+`ctx.sleep` twice with the same name in one body throws
+`MundaneDuplicateStepError`.
 
 ## 8. Python interface
 
@@ -230,7 +263,8 @@ mundane.run("task.db", workflow)
 
 Same shape as TS: `ctx.step(name, fn)`, `ctx.sleep(name, duration)`. No
 decorators. The first-write JSON round-trip check raises
-`mundane.SerializationError`; lock contention raises `mundane.LockedError`.
+`mundane.SerializationError`; lock contention raises `mundane.LockedError`;
+duplicate step name within one body raises `mundane.DuplicateStepError`.
 
 Async variant: `await mundane.arun("task.db", async_workflow)` with
 `await ctx.astep(...)` / `await ctx.asleep(...)`. The DB operations remain
@@ -238,22 +272,61 @@ sync under the hood — async just lets the user `fn` be a coroutine.
 
 ## 9. Operational notes
 
-- **Cron**: invoke the same command every N minutes; rely on `flock` to make
-  overlapping invocations harmless (the second exits 75) and on the cache to
-  make a successful invocation that re-runs immediately a no-op.
+- **Cron**: invoke the same shell script every N minutes; rely on `flock`
+  to make overlapping invocations harmless (the second exits 75) and on
+  the cache to make a successful invocation that re-runs immediately a
+  no-op.
 - **Signals**: SIGINT/SIGTERM during a step body interrupt the body; the
   `pending` row is left behind; next invocation re-runs that step. Steps
   must be idempotent. This is restated here because it is the single
   contract the caller cannot avoid.
-- **Long sleeps**: `nap 24h` really blocks the process for 24h. If that is
-  the wrong tradeoff for your deployment, decompose into shorter naps or
-  exit-and-recron yourself — v1 does not provide an "exit and reschedule"
-  primitive.
+- **Long sleeps**: `nap 24h` really blocks the process for 24h. If that
+  is the wrong tradeoff for your deployment, decompose into shorter naps
+  or exit-and-recron yourself — v1 does not provide an "exit and
+  reschedule" primitive.
 - **Backups**: copy the file. Done.
-- **Inspection**: `sqlite3 task.db .dump` is a supported interface. The two
-  table names are stable across v1.
+- **Inspection**: `sqlite3 task.db .dump` is a supported interface. The
+  two table names are stable across v1.
 
-## 10. Non-goals (v1)
+## 10. Go interface
+
+Module: `github.com/paulbellamy/mundane/go` — importable as `mundane`.
+Single dependency on `modernc.org/sqlite` (pure-Go SQLite; no cgo).
+
+```go
+import "github.com/paulbellamy/mundane/go/mundane"
+
+err := mundane.Run("task.db", func(ctx *mundane.Ctx) error {
+    user, err := mundane.Step(ctx, "fetch", func() (User, error) {
+        return fetchUser(id)
+    })
+    if err != nil { return err }
+    if err := ctx.Sleep("cool", "5m"); err != nil { return err }
+    _, err = mundane.Step(ctx, "notify", func() (struct{}, error) {
+        return struct{}{}, sendEmail(user.Email, "hi")
+    })
+    return err
+})
+```
+
+`mundane.Step[T]` is generic: the typed value the user fn returns is
+JSON-round-tripped on first write and remarshalled into `T` on cache hits.
+`ctx.Sleep(name, duration)` mirrors the bash/Py/TS shape.
+
+JSON contract: the value returned from `fn` must satisfy `bytes.Equal(
+json.Marshal(v), json.Marshal(json.Unmarshal(json.Marshal(v))))`. The
+runtime performs that check on the first write and returns
+`*SerializationError` if it fails.
+
+Lock contention returns `*LockedError`. Duplicate step name returns
+`*DuplicateStepError`. Invalid name returns `*InvalidNameError`.
+Wrong schema returns `*SchemaError`. A step body's error is wrapped
+in `*StepFailedError` (which unwraps to the original).
+
+The same module also ships the CLI in `cmd/mundane`; the binary is the
+canonical bash UX (`mundane init`).
+
+## 11. Non-goals (v1)
 
 - Multiple writers per file.
 - Cross-file dependencies / fan-out / signals between tasks.

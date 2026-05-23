@@ -2,6 +2,7 @@
 typescript/node_modules/
 typescript/dist/
 typescript/package-lock.json
+go/mundane-bin
 
 # Python
 **/__pycache__/

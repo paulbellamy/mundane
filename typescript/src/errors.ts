@@ -34,6 +34,16 @@ export class MundaneSchemaError extends Error {
   }
 }
 
+export class MundaneDuplicateStepError extends Error {
+  readonly code = "EMUNDANEDUPLICATE";
+  readonly stepName: string;
+  constructor(stepName: string) {
+    super(`duplicate step name: ${stepName}`);
+    this.name = "MundaneDuplicateStepError";
+    this.stepName = stepName;
+  }
+}
+
 export class MundaneStepFailedError extends Error {
   readonly code = "EMUNDANESTEPFAILED";
   readonly stepName: string;

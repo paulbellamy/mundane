@@ -1,9 +1,14 @@
 #!/bin/sh
-# Cross-runtime interop tests: bash, TS, and Python all read/write the same file.
+# Cross-runtime interop: Go (the bash CLI), Python, and TypeScript all read
+# and write the same on-disk format.
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-MUNDANE_BASH="$REPO/bash/mundane"
+MUNDANE="${MUNDANE_BIN:-$REPO/go/mundane-bin}"
+if [ ! -x "$MUNDANE" ]; then
+    echo "error: mundane binary not found at $MUNDANE (build first or set MUNDANE_BIN)" >&2
+    exit 1
+fi
 PYTHONPATH="$REPO/python"; export PYTHONPATH
 NODE_CWD="$REPO/typescript"
 
@@ -17,24 +22,25 @@ _t() { printf '  %s ... ' "$1"; }
 _pass() { printf 'ok\n'; PASSED=$((PASSED + 1)); }
 _fail() { printf 'FAIL\n    %s\n' "$1" >&2; FAILED=$((FAILED + 1)); }
 
-# ---------- bash writes -> python reads ----------
-test_bash_to_python() {
-    _t "bash writes, python reads"
-    db="$WORKDIR/b2py.db"
+# ---------- shell (go-backed CLI) writes -> python reads ----------
+test_sh_to_python() {
+    _t "shell writes (Go CLI), python reads"
+    db="$WORKDIR/sh2py.db"
     rm -f "$db"
 
-    "$MUNDANE_BASH" run "$db" -- step greeting -- echo "hello from bash" >/dev/null
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step greeting -- echo 'hello from shell'" >/dev/null
 
     out=$(python3 -m mundane get "$db" greeting)
-    [ "$out" = "hello from bash" ] || { _fail "python read: <$out>"; return; }
+    [ "$out" = "hello from shell" ] || { _fail "python read: <$out>"; return; }
     _pass
 }
-test_bash_to_python
+test_sh_to_python
 
-# ---------- python writes -> bash reads ----------
-test_python_to_bash() {
-    _t "python writes, bash reads"
-    db="$WORKDIR/py2b.db"
+# ---------- python writes -> shell reads ----------
+test_python_to_sh() {
+    _t "python writes, shell (Go CLI) reads"
+    db="$WORKDIR/py2sh.db"
     rm -f "$db"
 
     python3 -c "
@@ -43,15 +49,13 @@ def wf(ctx):
     ctx.step('a', lambda: {'x': 1, 'y': 'hello'})
 mundane.run('$db', wf)
 "
-    # bash mundane get returns the stored text. For JSON, that's the JSON text.
-    out=$("$MUNDANE_BASH" get "$db" a)
+    out=$("$MUNDANE" get "$db" a)
     case "$out" in
-        *'"x":'*'1'*) ;;
-        *) _fail "bash read of json: <$out>"; return ;;
+        *'"x":'*'1'*) _pass ;;
+        *) _fail "shell read of json: <$out>" ;;
     esac
-    _pass
 }
-test_python_to_bash
+test_python_to_sh
 
 # ---------- ts writes -> python reads ----------
 test_ts_to_python() {
@@ -104,13 +108,14 @@ console.log(JSON.stringify(v));
 }
 test_python_to_ts
 
-# ---------- mixed: bash + python + ts all add steps to same task ----------
-test_three_way_resume() {
-    _t "bash + python + ts all add to same task"
+# ---------- mixed: shell + python + ts all add steps to same task ----------
+test_three_way() {
+    _t "shell + python + ts all add to same task"
     db="$WORKDIR/three_way.db"
     rm -f "$db"
 
-    "$MUNDANE_BASH" run "$db" -- step step_bash -- echo "from bash" >/dev/null
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step step_sh -- echo 'from shell'" >/dev/null
 
     python3 -c "
 import mundane
@@ -130,45 +135,51 @@ const { run } = require('./dist/src/index');
 " >/dev/null
     cd - >/dev/null
 
-    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM mundane_steps WHERE status='done'")
+    # Count rows via the Go CLI itself.
+    count=$("$MUNDANE" steps "$db" | wc -l | tr -d ' ')
     [ "$count" = "3" ] || { _fail "expected 3 done steps, got $count"; return; }
 
-    # All three runtimes use the same task_id.
-    tid_count=$(sqlite3 "$db" "SELECT COUNT(DISTINCT value) FROM mundane_meta WHERE key='task_id'")
+    # All three runtimes share the task_id.
+    tid_count=$("$MUNDANE" status "$db" | awk '{
+        for (i=1; i<=NF; i++) if (index($i,"task_id=")==1) print substr($i,9)
+    }' | sort -u | wc -l)
     [ "$tid_count" = "1" ] || { _fail "task_id divergence: $tid_count distinct"; return; }
     _pass
 }
-test_three_way_resume
+test_three_way
 
-# ---------- locking interop: bash holds lock, python sees LockedError ----------
-test_lock_interop() {
-    _t "bash holds lock, python gets LockedError"
+# ---------- locking interop: shell holds, python sees LockedError ----------
+test_lock_sh_to_py() {
+    _t "shell holds lock, python gets LockedError"
     db="$WORKDIR/lockint.db"
     rm -f "$db"
 
-    ( "$MUNDANE_BASH" run "$db" -- nap a 1s ) &
+    (sh -c "eval \"\$('$MUNDANE' init '$db')\"
+nap a 1s") &
     pid=$!
     sleep 0.2
 
     set +e
-    python3 -c "
-import mundane, sys
+    out=$(python3 -c "
+import mundane
 try:
     mundane.run('$db', lambda ctx: None)
     print('NO_LOCK')
 except mundane.LockedError:
     print('LOCKED')
-" > "$WORKDIR/out.txt" 2>&1
+" 2>&1)
     set -e
     wait $pid
 
-    grep -q LOCKED "$WORKDIR/out.txt" || { _fail "python didnt see lock: $(cat "$WORKDIR/out.txt")"; return; }
-    _pass
+    case "$out" in
+        *LOCKED*) _pass ;;
+        *) _fail "python didnt see lock: $out" ;;
+    esac
 }
-test_lock_interop
+test_lock_sh_to_py
 
 # ---------- locking interop: python holds, ts sees ----------
-test_lock_interop_py_ts() {
+test_lock_py_to_ts() {
     _t "python holds lock, ts gets MundaneLockedError"
     db="$WORKDIR/lockpyts.db"
     rm -f "$db"
@@ -207,11 +218,11 @@ const { run, MundaneLockedError } = require('./dist/src/index');
         *) _fail "ts didnt see lock: $out" ;;
     esac
 }
-test_lock_interop_py_ts
+test_lock_py_to_ts
 
 # ---------- resume across runtimes ----------
 test_resume_across_runtimes() {
-    _t "step cached in python is read by bash on resume"
+    _t "step cached in python is read by shell on resume"
     db="$WORKDIR/resume.db"
     rm -f "$db"
 
@@ -222,11 +233,13 @@ def wf(ctx):
 mundane.run('$db', wf)
 "
 
-    # bash second run with a different command for the same step name —
-    # cache hit prints the python-stored value.
-    out=$("$MUNDANE_BASH" run "$db" -- step fetch -- echo "this should NOT run")
-    [ "$out" = "result-from-python" ] || { _fail "bash got <$out>"; return; }
-    _pass
+    # Shell second run: 'fetch' is cached as JSON \"result-from-python\".
+    # `mundane get` decodes JSON, so we see the bare string.
+    out=$("$MUNDANE" get "$db" fetch)
+    case "$out" in
+        *result-from-python*) _pass ;;
+        *) _fail "shell got <$out>" ;;
+    esac
 }
 test_resume_across_runtimes
 

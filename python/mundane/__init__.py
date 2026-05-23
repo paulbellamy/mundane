@@ -4,6 +4,7 @@ One workflow run is one SQLite file. Crash, re-invoke, resume.
 """
 
 from .core import (
+    DuplicateStepError,
     LockedError,
     SchemaError,
     SerializationError,
@@ -23,6 +24,7 @@ __all__ = [
     "SerializationError",
     "SchemaError",
     "StepFailedError",
+    "DuplicateStepError",
 ]
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

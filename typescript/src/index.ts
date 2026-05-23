@@ -12,16 +12,18 @@
 import Database from "better-sqlite3";
 import { parseDurationMs } from "./duration";
 import {
+  MundaneDuplicateStepError,
   MundaneLockedError,
   MundaneSchemaError,
   MundaneSerializationError,
   MundaneStepFailedError,
 } from "./errors";
 import { type AcquiredLock, acquireLock } from "./lock";
-import { Disambiguator, validateName } from "./names";
+import { validateName } from "./names";
 import { bootstrap } from "./schema";
 
 export {
+  MundaneDuplicateStepError,
   MundaneLockedError,
   MundaneSchemaError,
   MundaneSerializationError,
@@ -126,11 +128,18 @@ function decodeResult(row: StepRow): unknown {
 class TaskState {
   readonly db: Database.Database;
   readonly cache = new Map<string, StepRow>();
-  readonly disambig = new Disambiguator();
+  readonly seen = new Set<string>();
 
   constructor(db: Database.Database) {
     this.db = db;
     this.loadCache();
+  }
+
+  checkSeen(name: string): void {
+    if (this.seen.has(name)) {
+      throw new MundaneDuplicateStepError(name);
+    }
+    this.seen.add(name);
   }
 
   private loadCache(): void {
@@ -193,37 +202,37 @@ class ContextImpl implements Context {
 
   async step<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
     validateName(name);
-    const resolved = this.task.disambig.next(name);
-    const cached = this.task.cache.get(resolved);
+    this.task.checkSeen(name);
+    const cached = this.task.cache.get(name);
     if (cached && cached.status === "done") {
       return decodeResult(cached) as T;
     }
-    this.task.ensurePendingRow(resolved, "step", "json");
+    this.task.ensurePendingRow(name, "step", "json");
     let value: T;
     try {
       value = await fn();
     } catch (e) {
       const msg = e instanceof Error ? e.stack || e.message : String(e);
-      this.task.commitFailed(resolved, msg);
-      throw new MundaneStepFailedError(resolved, e);
+      this.task.commitFailed(name, msg);
+      throw new MundaneStepFailedError(name, e);
     }
     const text = checkJsonRoundtrip(value);
-    this.task.commitDone(resolved, "json", text);
+    this.task.commitDone(name, "json", text);
     return value;
   }
 
   async sleep(name: string, duration: string | number): Promise<void> {
     validateName(name);
-    const resolved = this.task.disambig.next(name);
+    this.task.checkSeen(name);
     const ms = parseDurationMs(duration);
-    const cached = this.task.cache.get(resolved);
+    const cached = this.task.cache.get(name);
     let wakeAt: number;
     if (cached && cached.status === "done") {
       wakeAt = Number(decodeResult(cached));
     } else {
       wakeAt = Date.now() + ms;
-      this.task.ensurePendingRow(resolved, "sleep", "epoch");
-      this.task.commitDone(resolved, "epoch", String(wakeAt));
+      this.task.ensurePendingRow(name, "sleep", "epoch");
+      this.task.commitDone(name, "epoch", String(wakeAt));
     }
     const remaining = wakeAt - Date.now();
     if (remaining > 0) {

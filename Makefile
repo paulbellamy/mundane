@@ -1,13 +1,25 @@
-.PHONY: test test-bash test-python test-ts test-interop build-ts \
-        lint lint-bash lint-python lint-ts clean
+.PHONY: test test-go test-sh test-python test-ts test-interop build build-go build-ts \
+        lint lint-sh lint-python lint-ts lint-go clean
 
-test: test-bash test-python test-ts test-interop
+MUNDANE_BIN := go/mundane-bin
+export MUNDANE_BIN
 
-lint: lint-bash lint-python lint-ts
+test: build test-go test-sh test-python test-ts test-interop
 
-lint-bash:
+lint: lint-sh lint-python lint-ts lint-go
+
+build: build-go build-ts
+
+build-go:
+	@cd go && go build -o mundane-bin ./cmd/mundane
+
+build-ts:
+	@cd typescript && [ -d node_modules ] || npm install --silent
+	@cd typescript && npx tsc -p .
+
+lint-sh:
 	@echo "=== shellcheck ==="
-	@shellcheck -s sh bash/mundane bash/test/run.sh interop-tests/run.sh
+	@shellcheck -s sh bash/test/run.sh interop-tests/run.sh
 
 lint-python:
 	@echo "=== ruff ==="
@@ -17,8 +29,16 @@ lint-ts: build-ts
 	@echo "=== biome ==="
 	@cd typescript && npx biome check src/ test/
 
-test-bash:
-	@echo "=== bash ==="
+lint-go:
+	@echo "=== go vet ==="
+	@cd go && go vet ./...
+
+test-go: build-go
+	@echo "=== go ==="
+	@cd go && go test ./...
+
+test-sh: build-go
+	@echo "=== sh integration ==="
 	@./bash/test/run.sh
 
 test-python:
@@ -29,14 +49,10 @@ test-ts: build-ts
 	@echo "=== typescript ==="
 	@cd typescript && node --test dist/test/basic.test.js
 
-test-interop: build-ts
+test-interop: build
 	@echo "=== interop ==="
 	@./interop-tests/run.sh
 
-build-ts:
-	@cd typescript && [ -d node_modules ] || npm install --silent
-	@cd typescript && npx tsc -p .
-
 clean:
-	rm -rf typescript/dist typescript/node_modules
+	rm -rf typescript/dist typescript/node_modules go/mundane-bin
 	find . -name '__pycache__' -type d -exec rm -rf {} +

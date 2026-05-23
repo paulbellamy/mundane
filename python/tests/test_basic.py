@@ -79,18 +79,16 @@ class Naming(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mundane.run(path, wf)
 
-    def test_duplicate_names_disambiguated(self):
+    def test_duplicate_name_raises(self):
         with TempDB() as path:
             def wf(ctx):
-                return [
-                    ctx.step("x", lambda: 1),
-                    ctx.step("x", lambda: 2),
-                    ctx.step("x", lambda: 3),
-                ]
-            self.assertEqual(mundane.run(path, wf), [1, 2, 3])
-            # Inspect: should see x, x#2, x#3
+                ctx.step("x", lambda: 1)
+                ctx.step("x", lambda: 2)  # duplicate -> raises
+            with self.assertRaises(mundane.DuplicateStepError):
+                mundane.run(path, wf)
+            # First step still committed before the duplicate was raised.
             names = [r["name"] for r in mundane.steps(path)]
-            self.assertEqual(names, ["x", "x#2", "x#3"])
+            self.assertEqual(names, ["x"])
 
 
 class Locking(unittest.TestCase):

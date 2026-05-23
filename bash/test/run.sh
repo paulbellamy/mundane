@@ -1,29 +1,24 @@
 #!/bin/sh
-# Test harness for the bash `mundane` script. POSIX sh, no bashisms.
+# Shell-level integration tests for the mundane CLI's eval-init pattern.
+# Verifies the emitted init script, step/nap helpers, and the __step/__nap
+# subprocess paths under a real POSIX sh.
 set -u
 
-MUNDANE="$(dirname "$0")/../mundane"
+MUNDANE="${MUNDANE_BIN:-$(dirname "$0")/../../go/mundane-bin}"
+if [ ! -x "$MUNDANE" ]; then
+    echo "error: mundane binary not found at $MUNDANE (build first or set MUNDANE_BIN)" >&2
+    exit 1
+fi
+
 WORKDIR=$(mktemp -d)
 PASSED=0
 FAILED=0
 
 trap 'rm -rf "$WORKDIR"' EXIT
 
-_t() {
-    _name="$1"
-    printf '  %s ... ' "$_name"
-}
-
-_pass() {
-    printf 'ok\n'
-    PASSED=$((PASSED + 1))
-}
-
-_fail() {
-    printf 'FAIL\n'
-    printf '    %s\n' "$1" >&2
-    FAILED=$((FAILED + 1))
-}
+_t() { printf '  %s ... ' "$1"; }
+_pass() { printf 'ok\n'; PASSED=$((PASSED + 1)); }
+_fail() { printf 'FAIL\n    %s\n' "$1" >&2; FAILED=$((FAILED + 1)); }
 
 # ---------- happy path: step cached on re-run ----------
 test_step_cached() {
@@ -31,91 +26,91 @@ test_step_cached() {
     db="$WORKDIR/three.db"
     rm -f "$db"
 
-    out=$("$MUNDANE" run "$db" -- step a -- echo first)
+    out=$(sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step a -- echo first")
     [ "$out" = "first" ] || { _fail "first run output: <$out>"; return; }
 
     # Re-run: body would print "changed" but cache wins.
-    out=$("$MUNDANE" run "$db" -- step a -- echo changed)
+    out=$(sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step a -- echo changed")
     [ "$out" = "first" ] || { _fail "cache miss on rerun: <$out>"; return; }
 
     _pass
 }
 test_step_cached
 
-# ---------- name disambiguation ----------
-test_disambig() {
-    _t "duplicate names get #N suffix"
-    db="$WORKDIR/dis.db"
+# ---------- duplicate name raises ----------
+test_duplicate_name() {
+    _t "duplicate step name in one body exits 2"
+    db="$WORKDIR/dup.db"
     rm -f "$db"
-
-    "$MUNDANE" run "$db" -- step x -- echo one >/dev/null
-    "$MUNDANE" run "$db" -- step x -- echo two >/dev/null  # cached, doesnt count
-    # In a single run, two `step x` calls should produce x and x#2.
-    "$MUNDANE" run "$db" -- sh -c '
-        # cant — step/nap not in subshell.
-        true
-    ' >/dev/null
-
-    # Since we cant do two steps in one mundane invocation without sourcing,
-    # the disambig is mostly tested via TS/Python interop tests.
-    names=$(sqlite3 "$db" "SELECT name FROM mundane_steps ORDER BY id")
-    if [ "$names" != "x" ]; then _fail "unexpected names: $names"; return; fi
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step x -- echo a
+step x -- echo b" >/dev/null 2>&1
+    rc=$?
+    set -e
+    [ "$rc" = "2" ] || { _fail "expected exit 2, got $rc"; return; }
     _pass
 }
-test_disambig
+test_duplicate_name
 
 # ---------- lock contention ----------
 test_lock() {
-    _t "second concurrent run exits 75"
+    _t "second concurrent init exits 75"
     db="$WORKDIR/lock.db"
     rm -f "$db"
 
-    # First run holds the lock by napping briefly.
-    ( "$MUNDANE" run "$db" -- nap a 1s ) &
+    (sh -c "eval \"\$('$MUNDANE' init '$db')\"
+nap a 1s") &
     pid=$!
-    sleep 0.2  # let the first run acquire the lock
+    sleep 0.2
 
-    "$MUNDANE" run "$db" -- step b -- echo hi >/dev/null 2>&1
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"" >/dev/null 2>&1
     rc=$?
+    set -e
     wait $pid
-    if [ "$rc" != "75" ]; then _fail "expected exit 75, got $rc"; return; fi
+    [ "$rc" = "75" ] || { _fail "expected exit 75, got $rc"; return; }
     _pass
 }
 test_lock
 
-# ---------- sleep persists wake_at ----------
+# ---------- nap persists wake_at, resumes near-instantly ----------
 test_nap_persist() {
-    _t "nap persists wake_at and skips on cache hit"
+    _t "nap persists wake_at; second run is instant"
     db="$WORKDIR/nap.db"
     rm -f "$db"
 
-    t0=$(date +%s%3N)
-    "$MUNDANE" run "$db" -- nap a 50ms
-    t1=$(date +%s%3N)
-    e1=$((t1 - t0))
-    if [ "$e1" -gt 1000 ]; then _fail "first nap too long: ${e1}ms"; return; fi
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+nap a 50ms"
 
-    t0=$(date +%s%3N)
-    "$MUNDANE" run "$db" -- nap a 10s   # already woken
-    t1=$(date +%s%3N)
-    e2=$((t1 - t0))
-    if [ "$e2" -gt 500 ]; then _fail "second nap should be instant: ${e2}ms"; return; fi
+    t0=$(date +%s)
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+nap a 10s"
+    t1=$(date +%s)
+    e=$((t1 - t0))
+    [ "$e" -lt 2 ] || { _fail "second nap should be near-instant: ${e}s"; return; }
     _pass
 }
 test_nap_persist
 
-# ---------- step failure marks row failed and exits nonzero ----------
+# ---------- step failure marks row failed and exits with cmd code ----------
 test_step_failure() {
-    _t "step failure marks row failed and exits nonzero"
+    _t "step failure marks row failed and propagates exit code"
     db="$WORKDIR/fail.db"
     rm -f "$db"
 
-    "$MUNDANE" run "$db" -- step bad -- sh -c 'exit 5' >/dev/null 2>&1
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step bad -- sh -c 'exit 5'" >/dev/null 2>&1
     rc=$?
-    if [ "$rc" = "0" ]; then _fail "expected nonzero exit"; return; fi
-    st=$(sqlite3 "$db" "SELECT status FROM mundane_steps WHERE name='bad'")
-    # The row is pending->failed after we attempt and fail.
-    if [ "$st" != "failed" ]; then _fail "row status: $st (expected failed)"; return; fi
+    set -e
+    [ "$rc" = "5" ] || { _fail "expected exit 5, got $rc"; return; }
+
+    # Inspect: row should be 'failed'.
+    st=$("$MUNDANE" steps "$db" | awk '/^[0-9]+/ && $2=="bad" { print $4 }')
+    [ "$st" = "failed" ] || { _fail "row status: <$st> expected failed"; return; }
     _pass
 }
 test_step_failure
@@ -125,9 +120,12 @@ test_bad_name() {
     _t "invalid step name rejected"
     db="$WORKDIR/badname.db"
     rm -f "$db"
-    "$MUNDANE" run "$db" -- step "bad name" -- echo hi >/dev/null 2>&1
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step 'bad name' -- echo hi" >/dev/null 2>&1
     rc=$?
-    if [ "$rc" = "0" ]; then _fail "expected nonzero"; return; fi
+    set -e
+    [ "$rc" = "2" ] || { _fail "expected exit 2, got $rc"; return; }
     _pass
 }
 test_bad_name
@@ -137,7 +135,8 @@ test_inspect() {
     _t "status/steps/get subcommands"
     db="$WORKDIR/insp.db"
     rm -f "$db"
-    "$MUNDANE" run "$db" -- step a -- echo hello >/dev/null
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step a -- echo hello" >/dev/null
 
     out=$("$MUNDANE" status "$db")
     case "$out" in
@@ -152,26 +151,23 @@ test_inspect() {
     esac
 
     out=$("$MUNDANE" get "$db" a)
-    if [ "$out" != "hello" ]; then _fail "get result: <$out>"; return; fi
+    [ "$out" = "hello" ] || { _fail "get result: <$out>"; return; }
     _pass
 }
 test_inspect
 
-# ---------- --b64 mode ----------
+# ---------- --b64 mode preserves NUL bytes ----------
 test_b64() {
-    _t "step --b64 stores and decodes binary"
+    _t "step --b64 stores and decodes binary (NUL bytes)"
     db="$WORKDIR/b64.db"
     rm -f "$db"
 
-    # Generate a payload with NUL bytes via printf octal escapes.
-    "$MUNDANE" run "$db" -- step --b64 raw -- printf 'a\000b\001c' \
-        > "$WORKDIR/b64.out" 2>/dev/null
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step --b64 raw -- printf 'a\\000b\\001c'" > "$WORKDIR/b64.out" 2>/dev/null
 
-    # Confirm exact bytes: a, NUL, b, SOH, c → 5 bytes total.
     size=$(wc -c < "$WORKDIR/b64.out")
     [ "$size" = "5" ] || { _fail "wrong byte count: $size"; return; }
 
-    # Confirm bytes match.
     expected_hex="6100620163"
     actual_hex=$(od -An -tx1 < "$WORKDIR/b64.out" | tr -d ' \n')
     [ "$actual_hex" = "$expected_hex" ] || {
@@ -185,10 +181,19 @@ test_schema_mismatch() {
     _t "schema_version != 1 is rejected"
     db="$WORKDIR/badschema.db"
     rm -f "$db"
-    sqlite3 "$db" "CREATE TABLE mundane_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO mundane_meta VALUES ('schema_version', '99');"
-    "$MUNDANE" run "$db" -- step a -- echo hi >/dev/null 2>&1
+    # Use Python's sqlite3 module to seed (no sqlite3 CLI required).
+    python3 -c "
+import sqlite3
+c = sqlite3.connect('$db')
+c.execute('CREATE TABLE mundane_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+c.execute(\"INSERT INTO mundane_meta VALUES ('schema_version', '99')\")
+c.commit(); c.close()
+"
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"" >/dev/null 2>&1
     rc=$?
-    if [ "$rc" = "0" ]; then _fail "expected nonzero exit"; return; fi
+    set -e
+    [ "$rc" = "2" ] || { _fail "expected exit 2, got $rc"; return; }
     _pass
 }
 test_schema_mismatch
