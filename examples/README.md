@@ -9,6 +9,7 @@ run, so a resumed run visibly skips what it already did.
 |---------|---------|-----------|
 | [`etl-typescript/`](./etl-typescript) | TypeScript | Crash mid-pipeline; resume without re-extracting or re-transforming. Indexed step names for a per-record loop. |
 | [`ai-pipeline-python/`](./ai-pipeline-python) | Python | Each LLM call is a cached step — crash and resume without re-paying for completed calls. |
+| [`onboarding-go/`](./onboarding-go) | Go | A multi-step drip campaign: each send is a step, each gap is a `nap`. Kill it mid-wait and resume without re-sending. |
 | [`docker-volume/`](./docker-volume) | Shell + Docker | The task file lives on a volume, so it survives container deletion. An interrupted `nap` resumes its remainder. |
 
 Each directory has its own README with copy-pasteable commands. Across all
