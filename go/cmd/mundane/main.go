@@ -12,7 +12,7 @@ const usage = `usage: mundane <subcommand> [args]
   get    <task.db> <name>
 
   __bootstrap <task.db>            (internal; used by init)
-  __step [--b64] <task.db> <name> -- CMD [args...]
+  __step <task.db> <name> -- CMD [args...]
                                    (internal; called by step shell function)
   __nap  <task.db> <name> <duration>
                                    (internal; called by nap shell function)

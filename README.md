@@ -77,8 +77,8 @@ await run("task.db", async (ctx) => {
 ## Running the tests
 
 ```sh
-make build      # Go binary + TS compile
-make test       # go + sh integration + python + typescript + interop
+make build      # Go binaries + TS compile
+make test       # go + sh integration + python + typescript + conformance
 make lint       # shellcheck + ruff + biome + go vet
 ```
 
@@ -90,8 +90,13 @@ cd go && go test ./...                            # Go SDK
 cd python && python3 -m unittest tests.test_basic # Python
 cd typescript && npm install \
   && npx tsc -p . && node --test dist/test/      # TypeScript
-./interop-tests/run.sh                            # cross-runtime
+python3 conformance/run.py                         # shared cross-runtime harness
 ```
+
+The [conformance harness](./conformance/) is the shared cross-runtime
+contract: scenarios in [`conformance/scenarios/`](./conformance/scenarios)
+are replayed by a thin per-runtime driver and verified through the
+`mundane` CLI, so every runtime is held to the same on-disk behavior.
 
 Per-runtime details live in each runtime's README:
 [`go/`](./go/README.md), [`python/`](./python/README.md),

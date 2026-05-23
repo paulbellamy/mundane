@@ -1,10 +1,11 @@
-.PHONY: test test-go test-sh test-python test-ts test-interop build build-go build-ts \
+.PHONY: test test-go test-sh test-python test-ts test-conformance \
+        build build-go build-ts \
         lint lint-sh lint-python lint-ts lint-go clean
 
 MUNDANE_BIN := go/mundane-bin
 export MUNDANE_BIN
 
-test: build test-go test-sh test-python test-ts test-interop
+test: build test-go test-sh test-python test-ts test-conformance
 
 lint: lint-sh lint-python lint-ts lint-go
 
@@ -12,6 +13,7 @@ build: build-go build-ts
 
 build-go:
 	@cd go && go build -o mundane-bin ./cmd/mundane
+	@cd go && go build -o conformance-driver ./cmd/conformance
 
 build-ts:
 	@cd typescript && [ -d node_modules ] || npm install --silent
@@ -19,7 +21,7 @@ build-ts:
 
 lint-sh:
 	@echo "=== shellcheck ==="
-	@shellcheck -s sh bash/test/run.sh interop-tests/run.sh
+	@shellcheck -s sh bash/test/run.sh
 
 lint-python:
 	@echo "=== ruff ==="
@@ -49,10 +51,10 @@ test-ts: build-ts
 	@echo "=== typescript ==="
 	@cd typescript && node --test dist/test/basic.test.js
 
-test-interop: build
-	@echo "=== interop ==="
-	@./interop-tests/run.sh
+test-conformance: build
+	@echo "=== conformance (shared harness) ==="
+	@python3 conformance/run.py
 
 clean:
-	rm -rf typescript/dist typescript/node_modules go/mundane-bin
+	rm -rf typescript/dist typescript/node_modules go/mundane-bin go/conformance-driver
 	find . -name '__pycache__' -type d -exec rm -rf {} +

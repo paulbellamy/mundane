@@ -14,6 +14,10 @@ format and interoperate row-for-row.
   are a hard error.
 - §6 bash interface is now `eval "$(mundane init <db>)"` + `step`/`nap`
   helpers in the caller's shell (formerly `mundane run <db> -- <body>`).
+- §2 `encoding` collapsed from {json, text, b64, epoch} to {json, bytes};
+  the `--b64` flag is gone (the shell step is binary-safe via raw BLOB).
+- Inspection (`status`/`steps`/`get`) is CLI-only — the SDKs no longer
+  wrap it. The `mundane` binary is the single inspection surface.
 - §10 Go interface added (4th peer runtime).
 
 ---
@@ -59,7 +63,7 @@ CREATE TABLE mundane_steps (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   name         TEXT NOT NULL,            -- caller-supplied; unique per task
   kind         TEXT NOT NULL,            -- 'step' | 'sleep'
-  encoding     TEXT NOT NULL,            -- 'json' | 'text' | 'b64' | 'epoch'
+  encoding     TEXT NOT NULL,            -- 'json' | 'bytes'
   result       BLOB,                     -- payload per encoding; NULL while pending
   status       TEXT NOT NULL,            -- 'pending' | 'done' | 'failed'
   error        TEXT,                     -- failure message when status='failed'
@@ -88,15 +92,16 @@ short window of a step body executing; on crash they remain `pending` and the
 next invocation re-runs them (steps must be idempotent — that is the entire
 contract the caller signs in exchange for the durability guarantee).
 
-`encoding` semantics:
-- `json`: `result` is UTF-8 JSON text. TS/Python steps and bash `step` without
-  `--b64` use this; the runtime calls `JSON.parse` / `json.loads` on read.
-- `text`: `result` is raw bytes treated as a UTF-8 string. Bash `step` without
-  `--b64` uses this (stdout, verbatim, trailing newline preserved).
-- `b64`: `result` is base64. Bash `step --b64` uses this; emit decodes.
-- `epoch`: `result` is an integer wake-time in ms since epoch. Used by `sleep`
-  rows so a resumed invocation can compute "how much longer" without
-  re-parsing a duration argument.
+`encoding` semantics (v1.1 collapsed the former four-value set to two):
+- `json`: `result` is UTF-8 JSON text. The Go/TS/Python SDK steps use this;
+  the runtime calls `JSON.parse` / `json.loads` / `json.Unmarshal` on read.
+  `sleep` rows also use `json` — the payload is an integer wake-time in ms
+  since epoch, stored as a JSON number, so a resumed invocation can compute
+  "how much longer" without re-parsing a duration argument (`kind='sleep'`
+  distinguishes these from value steps).
+- `bytes`: `result` is a raw BLOB stored verbatim. The shell `step` uses
+  this for command stdout — binary-safe (NUL bytes, no trailing-newline
+  munging) without a base64 layer. `mundane get` emits it unchanged.
 
 ## 3. Concurrency
 
@@ -169,20 +174,19 @@ The lock is held until the calling shell exits.
 eval "$(mundane init task.db)"
 step fetch -- curl -fsS https://api/x
 nap  cool 5m
-step --b64 binary -- ./produce-bytes
+step binary -- ./produce-bytes
 step notify -- ./send-email.sh
 ```
 
 The emitted helpers:
 
-- `step NAME -- CMD [ARGS...]` — run `CMD` once; cache stdout as `text`.
-  Stdout of the cached or fresh run is re-emitted to *our* stdout. Stderr
-  is passed through live and not cached. Nonzero exit from `CMD` marks
-  the step `failed` and exits the calling shell with that exit code.
-- `step --b64 NAME -- CMD [ARGS...]` — same, but cache as `b64`. Useful
-  for binary or newline-sensitive payloads. Emit decodes transparently.
+- `step NAME -- CMD [ARGS...]` — run `CMD` once; cache stdout as `bytes`
+  (raw, binary-safe — NUL bytes and trailing newlines preserved). Stdout
+  of the cached or fresh run is re-emitted to *our* stdout. Stderr is
+  passed through live and not cached. Nonzero exit from `CMD` marks the
+  step `failed` and exits the calling shell with that exit code.
 - `nap NAME DURATION` — sleep `DURATION` (e.g. `30s`, `5m`, `2h`). First
-  call computes `wake_at = now + DURATION`, writes an `epoch` row, then
+  call computes `wake_at = now + DURATION`, writes a `sleep`/`json` row, then
   sleeps `wake_at - now`. Resumption sleeps the remaining time.
   SIGINT/SIGTERM during the sleep kills the process; the row persists;
   the next invocation resumes.
@@ -203,7 +207,7 @@ needed):
 Internal subcommands (called by the emitted `step`/`nap` helpers; refuse
 to run without `MUNDANE_LOCK_FD` in the environment):
 - `mundane __bootstrap <task.db>`
-- `mundane __step [--b64] <task.db> <name> -- CMD [args...]`
+- `mundane __step <task.db> <name> -- CMD [args...]`
 - `mundane __nap  <task.db> <name> <duration>`
 
 ## 7. TypeScript interface

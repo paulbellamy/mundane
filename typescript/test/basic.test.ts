@@ -6,13 +6,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import Database from "better-sqlite3";
 import {
   MundaneDuplicateStepError,
   MundaneLockedError,
   MundaneSerializationError,
   run,
 } from "../src/index";
-import { getResult, status, steps } from "../src/inspect";
+
+// Inspection lives in the CLI now; tests read on-disk state directly.
+function readSteps(path: string): { name: string; encoding: string; status: string }[] {
+  const db = new Database(path, { readonly: true });
+  try {
+    return db.prepare("SELECT name, encoding, status FROM mundane_steps ORDER BY id").all() as {
+      name: string;
+      encoding: string;
+      status: string;
+    }[];
+  } finally {
+    db.close();
+  }
+}
+
+function readResult(path: string, name: string): unknown {
+  const db = new Database(path, { readonly: true });
+  try {
+    const row = db.prepare("SELECT result, encoding FROM mundane_steps WHERE name = ?").get(name) as
+      | { result: Buffer | string; encoding: string }
+      | undefined;
+    if (!row) throw new Error(`no step ${name}`);
+    const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
+    return row.encoding === "json" ? JSON.parse(text) : text;
+  } finally {
+    db.close();
+  }
+}
 
 function newDb(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "mundane-test-"));
@@ -107,7 +135,7 @@ test("duplicate step name raises MundaneDuplicateStepError", async () => {
       (e: any) => e instanceof MundaneDuplicateStepError && e.stepName === "x",
     );
     // First step still committed before the dup raised.
-    const names = steps(path).map((s: any) => s.name);
+    const names = readSteps(path).map((s) => s.name);
     assert.deepEqual(names, ["x"]);
   } finally {
     cleanup();
@@ -179,17 +207,17 @@ test("locked task throws MundaneLockedError", async () => {
   }
 });
 
-test("status, steps, getResult", async () => {
+test("steps are committed and decode round-trips", async () => {
   const { path, cleanup } = newDb();
   try {
     await run(path, async (ctx: any) => {
       await ctx.step("a", async () => ({ x: 1 }));
       await ctx.step("b", async () => "hello");
     });
-    const s = status(path);
-    assert.equal(s.done, 2);
-    assert.deepEqual(getResult(path, "a"), { x: 1 });
-    assert.equal(getResult(path, "b"), "hello");
+    const done = readSteps(path).filter((s) => s.status === "done");
+    assert.equal(done.length, 2);
+    assert.deepEqual(readResult(path, "a"), { x: 1 });
+    assert.equal(readResult(path, "b"), "hello");
   } finally {
     cleanup();
   }

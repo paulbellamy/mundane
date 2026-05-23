@@ -156,25 +156,25 @@ step a -- echo hello" >/dev/null
 }
 test_inspect
 
-# ---------- --b64 mode preserves NUL bytes ----------
-test_b64() {
-    _t "step --b64 stores and decodes binary (NUL bytes)"
-    db="$WORKDIR/b64.db"
+# ---------- binary stdout (NUL bytes) round-trips as raw bytes ----------
+test_binary() {
+    _t "step stores binary stdout (NUL bytes) verbatim"
+    db="$WORKDIR/bin.db"
     rm -f "$db"
 
     sh -c "eval \"\$('$MUNDANE' init '$db')\"
-step --b64 raw -- printf 'a\\000b\\001c'" > "$WORKDIR/b64.out" 2>/dev/null
+step raw -- printf 'a\\000b\\001c'" > "$WORKDIR/bin.out" 2>/dev/null
 
-    size=$(wc -c < "$WORKDIR/b64.out")
+    size=$(wc -c < "$WORKDIR/bin.out")
     [ "$size" = "5" ] || { _fail "wrong byte count: $size"; return; }
 
     expected_hex="6100620163"
-    actual_hex=$(od -An -tx1 < "$WORKDIR/b64.out" | tr -d ' \n')
+    actual_hex=$(od -An -tx1 < "$WORKDIR/bin.out" | tr -d ' \n')
     [ "$actual_hex" = "$expected_hex" ] || {
         _fail "binary mismatch: got $actual_hex, want $expected_hex"; return; }
     _pass
 }
-test_b64
+test_binary
 
 # ---------- schema mismatch rejected ----------
 test_schema_mismatch() {

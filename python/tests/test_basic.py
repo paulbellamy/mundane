@@ -1,6 +1,7 @@
 """Basic tests for mundane (Python)."""
 
 import contextlib
+import json
 import multiprocessing as mp
 import os
 import sqlite3
@@ -13,6 +14,17 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import mundane
+
+
+def _names(path):
+    """Step names in id order, read straight from SQLite (no inspect API)."""
+    conn = sqlite3.connect(path)
+    try:
+        return [r[0] for r in conn.execute(
+            "SELECT name FROM mundane_steps ORDER BY id"
+        )]
+    finally:
+        conn.close()
 
 
 class TempDB:
@@ -87,8 +99,7 @@ class Naming(unittest.TestCase):
             with self.assertRaises(mundane.DuplicateStepError):
                 mundane.run(path, wf)
             # First step still committed before the duplicate was raised.
-            names = [r["name"] for r in mundane.steps(path)]
-            self.assertEqual(names, ["x"])
+            self.assertEqual(_names(path), ["x"])
 
 
 class Locking(unittest.TestCase):
@@ -145,17 +156,25 @@ class Sleep(unittest.TestCase):
 
 
 class Inspect(unittest.TestCase):
-    def test_status_and_get(self):
+    def test_steps_committed(self):
         with TempDB() as path:
             def wf(ctx):
                 ctx.step("a", lambda: {"x": 1})
                 ctx.step("b", lambda: "hello")
 
             mundane.run(path, wf)
-            st = mundane.status(path)
-            self.assertEqual(st["done"], 2)
-            self.assertEqual(mundane.get_result(path, "a"), {"x": 1})
-            self.assertEqual(mundane.get_result(path, "b"), "hello")
+            # Inspection lives in the CLI now; verify on-disk state directly.
+            conn = sqlite3.connect(path)
+            done = conn.execute(
+                "SELECT COUNT(*) FROM mundane_steps WHERE status='done'"
+            ).fetchone()[0]
+            self.assertEqual(done, 2)
+            a = conn.execute(
+                "SELECT result, encoding FROM mundane_steps WHERE name='a'"
+            ).fetchone()
+            self.assertEqual(a[1], "json")
+            self.assertEqual(json.loads(a[0]), {"x": 1})
+            conn.close()
 
 
 class Serialization(unittest.TestCase):

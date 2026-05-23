@@ -2,7 +2,6 @@ package mundane
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"strconv"
 	"time"
@@ -126,21 +125,17 @@ func (c *Ctx) Sleep(name, duration string) error {
 	}
 	var wakeAt int64
 	if cached, ok := c.cache[name]; ok && cached.Status == StatusDone {
-		v, err := DecodeResult(cached.Encoding, cached.Result)
+		w, err := parseEpoch(cached.Result)
 		if err != nil {
 			return fmt.Errorf("decode sleep row %q: %w", name, err)
-		}
-		w, ok := v.(int64)
-		if !ok {
-			return fmt.Errorf("sleep row %q has non-epoch payload", name)
 		}
 		wakeAt = w
 	} else {
 		wakeAt = NowMs() + ms
-		if err := ensurePending(c.db, c.cache, name, KindSleep, EncEpoch); err != nil {
+		if err := ensurePending(c.db, c.cache, name, KindSleep, EncJSON); err != nil {
 			return err
 		}
-		if err := commitDone(c.db, c.cache, name, EncEpoch, []byte(strconv.FormatInt(wakeAt, 10))); err != nil {
+		if err := commitDone(c.db, c.cache, name, EncJSON, []byte(strconv.FormatInt(wakeAt, 10))); err != nil {
 			return err
 		}
 	}
@@ -153,48 +148,33 @@ func (c *Ctx) Sleep(name, duration string) error {
 
 // LookupCachedStep returns the emit-ready payload bytes for a previously-
 // committed step named `name`, with hit=true. Used by the CLI's __step path.
-// Returns hit=false if the row is missing or not yet done.
+// Returns hit=false if the row is missing or not yet done. Both encodings
+// (json text, raw bytes) are emitted verbatim.
 func (c *Ctx) LookupCachedStep(name string) (payload []byte, hit bool, err error) {
 	cached, ok := c.cache[name]
 	if !ok || cached.Status != StatusDone {
 		return nil, false, nil
 	}
-	switch cached.Encoding {
-	case EncText, EncJSON:
-		return append([]byte(nil), cached.Result...), true, nil
-	case EncB64:
-		dec, err := base64.StdEncoding.DecodeString(string(cached.Result))
-		if err != nil {
-			return nil, false, fmt.Errorf("decode b64 cache: %w", err)
-		}
-		return dec, true, nil
-	}
-	return nil, false, fmt.Errorf("cannot emit step %q with encoding %q", name, cached.Encoding)
+	return append([]byte(nil), cached.Result...), true, nil
 }
 
-// WriteTextStep records a fresh text/b64 step row. `payload` is the raw bytes
-// captured from a subprocess's stdout. If b64 is true, payload is stored
-// base64-encoded; otherwise as text. Used by the CLI's __step path.
-func (c *Ctx) WriteTextStep(name string, payload []byte, b64 bool) error {
+// WriteBytesStep records a fresh bytes-encoded step row. `payload` is the raw
+// stdout captured from a subprocess, stored verbatim. Used by the CLI's
+// __step path.
+func (c *Ctx) WriteBytesStep(name string, payload []byte) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
-	enc := EncText
-	stored := payload
-	if b64 {
-		enc = EncB64
-		stored = []byte(base64.StdEncoding.EncodeToString(payload))
-	}
-	if err := ensurePending(c.db, c.cache, name, KindStep, enc); err != nil {
+	if err := ensurePending(c.db, c.cache, name, KindStep, EncBytes); err != nil {
 		return err
 	}
-	return commitDone(c.db, c.cache, name, enc, stored)
+	return commitDone(c.db, c.cache, name, EncBytes, payload)
 }
 
 // MarkStepFailed records a failure for a previously-pending step row.
 func (c *Ctx) MarkStepFailed(name, msg string) error {
 	// Make sure a row exists so the UPDATE has something to hit.
-	_ = ensurePending(c.db, c.cache, name, KindStep, EncText)
+	_ = ensurePending(c.db, c.cache, name, KindStep, EncBytes)
 	return commitFailed(c.db, name, msg)
 }
 
@@ -205,30 +185,29 @@ func (c *Ctx) SleepRow(name string) (wakeAtMs int64, hit bool, err error) {
 	if !ok || cached.Status != StatusDone {
 		return 0, false, nil
 	}
-	if cached.Encoding != EncEpoch {
-		return 0, false, fmt.Errorf("sleep row %q has non-epoch encoding %q", name, cached.Encoding)
-	}
-	v, err := DecodeResult(cached.Encoding, cached.Result)
+	w, err := parseEpoch(cached.Result)
 	if err != nil {
 		return 0, false, err
-	}
-	w, ok := v.(int64)
-	if !ok {
-		return 0, false, fmt.Errorf("sleep row %q payload not int64", name)
 	}
 	return w, true, nil
 }
 
-// WriteSleepRow records a fresh sleep row with the given wake time.
+// WriteSleepRow records a fresh sleep row with the given wake time, stored as
+// a JSON number.
 func (c *Ctx) WriteSleepRow(name string, wakeAtMs int64) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
-	if err := ensurePending(c.db, c.cache, name, KindSleep, EncEpoch); err != nil {
+	if err := ensurePending(c.db, c.cache, name, KindSleep, EncJSON); err != nil {
 		return err
 	}
-	return commitDone(c.db, c.cache, name, EncEpoch,
+	return commitDone(c.db, c.cache, name, EncJSON,
 		[]byte(strconv.FormatInt(wakeAtMs, 10)))
+}
+
+// parseEpoch reads a sleep row's JSON-number payload as integer milliseconds.
+func parseEpoch(raw []byte) (int64, error) {
+	return strconv.ParseInt(string(raw), 10, 64)
 }
 
 func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding string) error {

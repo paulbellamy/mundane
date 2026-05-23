@@ -110,28 +110,12 @@ def _decode_result(row: _StepRow) -> Any:
     raw = row.result
     if raw is None:
         return None
-    if isinstance(raw, bytes):
-        if enc == "json":
-            return json.loads(raw.decode("utf-8"))
-        if enc == "text":
-            return raw.decode("utf-8")
-        if enc == "b64":
-            import base64
-            return base64.b64decode(raw)
-        if enc == "epoch":
-            return int(raw.decode("utf-8"))
-    else:
-        # sqlite3 returns str for TEXT-typed reads; we store TEXT often.
-        s = raw
-        if enc == "json":
-            return json.loads(s)
-        if enc == "text":
-            return s
-        if enc == "b64":
-            import base64
-            return base64.b64decode(s)
-        if enc == "epoch":
-            return int(s)
+    # v1.1: only json (structured + sleep wake-times) and bytes (raw payloads).
+    if enc == "json":
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        return json.loads(text)
+    if enc == "bytes":
+        return raw if isinstance(raw, bytes) else raw.encode("utf-8")
     raise RuntimeError(f"unknown encoding: {enc!r}")
 
 
@@ -266,10 +250,10 @@ class Context:
             wake_at = _decode_result(row)
             self._sleep_remaining(int(wake_at))
             return
-        # absent / pending: compute wake_at, write epoch row, sleep remaining.
+        # absent / pending: compute wake_at, write json-number row, sleep.
         wake_at = _now_ms() + ms
-        self._task._ensure_pending_row(resolved, "sleep", "epoch")
-        self._task._commit_done(resolved, "epoch", str(wake_at))
+        self._task._ensure_pending_row(resolved, "sleep", "json")
+        self._task._commit_done(resolved, "json", str(wake_at))
         self._sleep_remaining(wake_at)
 
     def _sleep_remaining(self, wake_at_ms: int) -> None:
@@ -315,8 +299,8 @@ class Context:
             wake_at = int(_decode_result(row))
         else:
             wake_at = _now_ms() + ms
-            self._task._ensure_pending_row(resolved, "sleep", "epoch")
-            self._task._commit_done(resolved, "epoch", str(wake_at))
+            self._task._ensure_pending_row(resolved, "sleep", "json")
+            self._task._commit_done(resolved, "json", str(wake_at))
         remaining = wake_at - _now_ms()
         if remaining > 0:
             await asyncio.sleep(remaining / 1000.0)

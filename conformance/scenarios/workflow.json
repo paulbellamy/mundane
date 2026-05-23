@@ -1,0 +1,13 @@
+{
+  "description": "a small multi-step workflow with a sleep",
+  "operations": [
+    {"op": "step", "name": "fetch", "value": {"user": "alice", "id": 7}},
+    {"op": "sleep", "name": "cooldown", "duration": "5ms"},
+    {"op": "step", "name": "notify", "value": "sent"}
+  ],
+  "expect": [
+    {"name": "fetch", "kind": "step", "status": "done", "value": {"user": "alice", "id": 7}},
+    {"name": "cooldown", "kind": "sleep", "status": "done"},
+    {"name": "notify", "kind": "step", "status": "done", "value": "sent"}
+  ]
+}

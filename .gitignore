@@ -3,6 +3,7 @@ typescript/node_modules/
 typescript/dist/
 typescript/package-lock.json
 go/mundane-bin
+go/conformance-driver
 
 # Python
 **/__pycache__/

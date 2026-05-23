@@ -36,7 +36,7 @@ interface StepRow {
   id: number;
   name: string;
   kind: "step" | "sleep";
-  encoding: "json" | "text" | "b64" | "epoch";
+  encoding: "json" | "bytes";
   result: Buffer | string | null;
   status: "pending" | "done" | "failed";
   error: string | null;
@@ -109,17 +109,14 @@ function deepDiff(a: unknown, b: unknown, path: string): string | null {
 
 function decodeResult(row: StepRow): unknown {
   if (row.result === null) return null;
-  // better-sqlite3 returns BLOB as Buffer, TEXT as string. We store TEXT-y data.
-  const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
+  // better-sqlite3 returns BLOB as Buffer, TEXT as string.
   switch (row.encoding) {
-    case "json":
+    case "json": {
+      const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
       return JSON.parse(text);
-    case "text":
-      return text;
-    case "b64":
-      return Buffer.from(text, "base64");
-    case "epoch":
-      return Number(text);
+    }
+    case "bytes":
+      return typeof row.result === "string" ? Buffer.from(row.result, "utf8") : row.result;
     default:
       throw new Error(`unknown encoding: ${row.encoding}`);
   }
@@ -231,8 +228,8 @@ class ContextImpl implements Context {
       wakeAt = Number(decodeResult(cached));
     } else {
       wakeAt = Date.now() + ms;
-      this.task.ensurePendingRow(name, "sleep", "epoch");
-      this.task.commitDone(name, "epoch", String(wakeAt));
+      this.task.ensurePendingRow(name, "sleep", "json");
+      this.task.commitDone(name, "json", String(wakeAt));
     }
     const remaining = wakeAt - Date.now();
     if (remaining > 0) {

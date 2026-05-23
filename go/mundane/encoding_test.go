@@ -23,22 +23,23 @@ func TestCheckJSONRoundtrip(t *testing.T) {
 	}
 }
 
-func TestDecodeResultEpoch(t *testing.T) {
-	v, err := DecodeResult(EncEpoch, []byte("1700000000000"))
+func TestDecodeResultJSONNumber(t *testing.T) {
+	v, err := DecodeResult(EncJSON, []byte("1700000000000"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.(int64) != 1700000000000 {
-		t.Errorf("epoch: %v", v)
+	// json numbers decode to float64; the sleep path parses raw bytes instead.
+	if v.(float64) != 1700000000000 {
+		t.Errorf("json number: %v", v)
 	}
 }
 
-func TestDecodeResultB64(t *testing.T) {
-	v, err := DecodeResult(EncB64, []byte("aGVsbG8="))
+func TestDecodeResultBytes(t *testing.T) {
+	v, err := DecodeResult(EncBytes, []byte("hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(v.([]byte), []byte("hello")) {
-		t.Errorf("b64: %v", v)
+		t.Errorf("bytes: %v", v)
 	}
 }

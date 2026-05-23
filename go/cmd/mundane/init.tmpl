@@ -21,19 +21,13 @@ _mundane_check_seen() {
 }
 
 step() {
-    _b64=""
-    if [ "${1:-}" = "--b64" ]; then _b64="--b64"; shift; fi
     _name="${1:-}"
     [ -n "$_name" ] || { echo "mundane: step: missing name" >&2; exit 2; }
     shift
     [ "${1:-}" = "--" ] || { echo "mundane: step: expected '--' after name" >&2; exit 2; }
     shift
     _mundane_check_seen "$_name"
-    if [ -n "$_b64" ]; then
-        "$MUNDANE_EXE" __step --b64 "$MUNDANE_DB" "$_name" -- "$@"
-    else
-        "$MUNDANE_EXE" __step "$MUNDANE_DB" "$_name" -- "$@"
-    fi
+    "$MUNDANE_EXE" __step "$MUNDANE_DB" "$_name" -- "$@"
 }
 
 nap() {

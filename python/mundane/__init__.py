@@ -12,14 +12,10 @@ from .core import (
     arun,
     run,
 )
-from .inspect import get_result, status, steps
 
 __all__ = [
     "run",
     "arun",
-    "status",
-    "steps",
-    "get_result",
     "LockedError",
     "SerializationError",
     "SchemaError",
