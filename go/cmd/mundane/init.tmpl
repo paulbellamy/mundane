@@ -1,0 +1,42 @@
+# mundane init — eval this in your shell to set up a task.
+# Acquires an exclusive flock on the DB and defines `step` / `nap` helpers.
+# The lock auto-releases when this shell exits.
+
+if [ ! -e {{.DB}} ]; then : >> {{.DB}} || exit 1; fi
+exec {{.LockFD}}<>{{.DB}} || exit 1
+flock -nx {{.LockFD}} || { echo "mundane: {{.DBRaw}} is locked by another process" >&2; exit 75; }
+MUNDANE_LOCK_FD={{.LockFD}}
+MUNDANE_DB={{.DB}}
+MUNDANE_EXE={{.Exe}}
+export MUNDANE_LOCK_FD MUNDANE_DB MUNDANE_EXE
+"$MUNDANE_EXE" __bootstrap "$MUNDANE_DB" || exit $?
+
+_mundane_seen=""
+
+_mundane_check_seen() {
+    case "$_mundane_seen" in
+        *"|$1|"*) echo "mundane: duplicate step name: $1" >&2; exit 2 ;;
+    esac
+    _mundane_seen="${_mundane_seen}|$1|"
+}
+
+step() {
+    _name="${1:-}"
+    [ -n "$_name" ] || { echo "mundane: step: missing name" >&2; exit 2; }
+    shift
+    [ "${1:-}" = "--" ] || { echo "mundane: step: expected '--' after name" >&2; exit 2; }
+    shift
+    _mundane_check_seen "$_name"
+    "$MUNDANE_EXE" __step "$MUNDANE_DB" "$_name" -- "$@"
+}
+
+nap() {
+    _name="${1:-}"
+    _dur="${2:-}"
+    if [ -z "$_name" ] || [ -z "$_dur" ]; then
+        echo "mundane: nap: usage: nap NAME DURATION" >&2
+        exit 2
+    fi
+    _mundane_check_seen "$_name"
+    "$MUNDANE_EXE" __nap "$MUNDANE_DB" "$_name" "$_dur"
+}

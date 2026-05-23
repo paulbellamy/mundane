@@ -12,16 +12,18 @@
 import Database from "better-sqlite3";
 import { parseDurationMs } from "./duration";
 import {
+  MundaneDuplicateStepError,
   MundaneLockedError,
   MundaneSchemaError,
   MundaneSerializationError,
   MundaneStepFailedError,
 } from "./errors";
 import { type AcquiredLock, acquireLock } from "./lock";
-import { Disambiguator, validateName } from "./names";
+import { validateName } from "./names";
 import { bootstrap } from "./schema";
 
 export {
+  MundaneDuplicateStepError,
   MundaneLockedError,
   MundaneSchemaError,
   MundaneSerializationError,
@@ -34,7 +36,7 @@ interface StepRow {
   id: number;
   name: string;
   kind: "step" | "sleep";
-  encoding: "json" | "text" | "b64" | "epoch";
+  encoding: "json" | "bytes";
   result: Buffer | string | null;
   status: "pending" | "done" | "failed";
   error: string | null;
@@ -107,17 +109,14 @@ function deepDiff(a: unknown, b: unknown, path: string): string | null {
 
 function decodeResult(row: StepRow): unknown {
   if (row.result === null) return null;
-  // better-sqlite3 returns BLOB as Buffer, TEXT as string. We store TEXT-y data.
-  const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
+  // better-sqlite3 returns BLOB as Buffer, TEXT as string.
   switch (row.encoding) {
-    case "json":
+    case "json": {
+      const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
       return JSON.parse(text);
-    case "text":
-      return text;
-    case "b64":
-      return Buffer.from(text, "base64");
-    case "epoch":
-      return Number(text);
+    }
+    case "bytes":
+      return typeof row.result === "string" ? Buffer.from(row.result, "utf8") : row.result;
     default:
       throw new Error(`unknown encoding: ${row.encoding}`);
   }
@@ -126,11 +125,18 @@ function decodeResult(row: StepRow): unknown {
 class TaskState {
   readonly db: Database.Database;
   readonly cache = new Map<string, StepRow>();
-  readonly disambig = new Disambiguator();
+  readonly seen = new Set<string>();
 
   constructor(db: Database.Database) {
     this.db = db;
     this.loadCache();
+  }
+
+  checkSeen(name: string): void {
+    if (this.seen.has(name)) {
+      throw new MundaneDuplicateStepError(name);
+    }
+    this.seen.add(name);
   }
 
   private loadCache(): void {
@@ -193,37 +199,37 @@ class ContextImpl implements Context {
 
   async step<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
     validateName(name);
-    const resolved = this.task.disambig.next(name);
-    const cached = this.task.cache.get(resolved);
+    this.task.checkSeen(name);
+    const cached = this.task.cache.get(name);
     if (cached && cached.status === "done") {
       return decodeResult(cached) as T;
     }
-    this.task.ensurePendingRow(resolved, "step", "json");
+    this.task.ensurePendingRow(name, "step", "json");
     let value: T;
     try {
       value = await fn();
     } catch (e) {
       const msg = e instanceof Error ? e.stack || e.message : String(e);
-      this.task.commitFailed(resolved, msg);
-      throw new MundaneStepFailedError(resolved, e);
+      this.task.commitFailed(name, msg);
+      throw new MundaneStepFailedError(name, e);
     }
     const text = checkJsonRoundtrip(value);
-    this.task.commitDone(resolved, "json", text);
+    this.task.commitDone(name, "json", text);
     return value;
   }
 
   async sleep(name: string, duration: string | number): Promise<void> {
     validateName(name);
-    const resolved = this.task.disambig.next(name);
+    this.task.checkSeen(name);
     const ms = parseDurationMs(duration);
-    const cached = this.task.cache.get(resolved);
+    const cached = this.task.cache.get(name);
     let wakeAt: number;
     if (cached && cached.status === "done") {
       wakeAt = Number(decodeResult(cached));
     } else {
       wakeAt = Date.now() + ms;
-      this.task.ensurePendingRow(resolved, "sleep", "epoch");
-      this.task.commitDone(resolved, "epoch", String(wakeAt));
+      this.task.ensurePendingRow(name, "sleep", "json");
+      this.task.commitDone(name, "json", String(wakeAt));
     }
     const remaining = wakeAt - Date.now();
     if (remaining > 0) {

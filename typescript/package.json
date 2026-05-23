@@ -1,13 +1,10 @@
 {
   "name": "@mundane/core",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Tiny durable-execution: one workflow run is one SQLite file.",
   "license": "MIT",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "bin": {
-    "mundane": "dist/src/cli.js"
-  },
   "files": [
     "dist/"
   ],

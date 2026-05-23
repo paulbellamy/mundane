@@ -9,25 +9,44 @@ Inspired by [Absurd](https://github.com/earendil-works/absurd) — same
 SQLite so a workflow is one portable file you can `cp`, `mv`, or ship in
 a tarball.
 
-Three runtimes ship from this repo and interoperate row-for-row on the
+Four runtimes ship from this repo and interoperate row-for-row on the
 same on-disk format:
 
-| Runtime    | Path           | Distribution               |
-|------------|----------------|----------------------------|
-| Bash       | `bash/mundane` | single POSIX `sh` script   |
-| TypeScript | `typescript/`  | `@mundane/core` npm package |
-| Python     | `python/`      | `mundane` pypi package      |
+| Runtime    | Path                  | Distribution                  |
+|------------|-----------------------|-------------------------------|
+| Shell (CLI)| `go/cmd/mundane`      | single Go binary; eval-init   |
+| Go SDK     | `go/mundane`          | `github.com/paulbellamy/mundane/go` |
+| TypeScript | `typescript/`         | `@mundane/core` npm package   |
+| Python     | `python/`             | `mundane` pypi package        |
 
 See [`SPEC.md`](./SPEC.md) for the contract.
 
 ## Quick start
 
-### Bash
+### Shell
 
 ```sh
-./bash/mundane run task.db -- step greeting -- echo "hello world"
-./bash/mundane status task.db
-./bash/mundane get    task.db greeting
+#!/bin/sh
+eval "$(mundane init task.db)"      # flock, bootstrap, define step/nap
+step greeting -- echo "hello world"
+nap   cool 100ms
+step --b64 binary -- ./produce-bytes
+```
+
+`mundane status task.db` / `steps` / `get task.db greeting` for inspection.
+
+### Go
+
+```go
+import "github.com/paulbellamy/mundane/go/mundane"
+
+err := mundane.Run("task.db", func(ctx *mundane.Ctx) error {
+    user, err := mundane.Step(ctx, "fetch", func() (User, error) {
+        return fetchUser(id)
+    })
+    if err != nil { return err }
+    return ctx.Sleep("cool", "100ms")
+})
 ```
 
 ### Python
@@ -58,38 +77,27 @@ await run("task.db", async (ctx) => {
 ## Running the tests
 
 ```sh
-make test       # bash + python + typescript + interop
-make lint       # shellcheck (bash) + ruff (python) + biome (typescript)
+make build      # Go binaries + TS compile
+make test       # go + sh integration + python + typescript + conformance
+make lint       # shellcheck + ruff + biome + go vet
 ```
 
 Or by runtime:
 
 ```sh
-./bash/test/run.sh                                # bash
-cd python && python3 -m unittest tests.test_basic # python
+cd go && go test ./...                            # Go SDK
+./bash/test/run.sh                                # shell integration
+cd python && python3 -m unittest tests.test_basic # Python
 cd typescript && npm install \
-  && npx tsc -p . && node --test dist/test/      # typescript
-./interop-tests/run.sh                            # cross-runtime
+  && npx tsc -p . && node --test dist/test/      # TypeScript
+python3 conformance/run.py                         # shared cross-runtime harness
 ```
 
-CI (GitHub Actions) runs the test matrix plus three lint jobs
-(shellcheck, ruff, biome) on every push and pull request.
+The [conformance harness](./conformance/) is the shared cross-runtime
+contract: scenarios in [`conformance/scenarios/`](./conformance/scenarios)
+are replayed by a thin per-runtime driver and verified through the
+`mundane` CLI, so every runtime is held to the same on-disk behavior.
 
-## Implementation notes
-
-- **Locking.** Bash and Python use `flock(2)` directly. Node lacks a
-  built-in flock binding, so the TS runtime spawns a tiny `sh` helper that
-  holds the actual `flock(LOCK_EX | LOCK_NB)` on the SQLite file's fd and
-  releases it when our stdin closes. All three runtimes interoperate: a
-  lock held by one is visible to the others.
-- **Bash workflows** must use functions or inline step/nap invocations,
-  not separate scripts, because POSIX sh does not propagate function
-  definitions across `exec`. The most common pattern is one `step` per
-  `mundane run` invocation, driven externally by cron. For multi-step
-  workflows, source `bash/mundane` to gain `step` and `nap` in your shell.
-- **Trailing newlines.** Bash `step` (text encoding) preserves trailing
-  newlines exactly per the spec. Result bytes are written via stdin to
-  avoid command-substitution truncation.
-- **JSON interop.** Values written by TS/Python (`encoding='json'`) are
-  read by bash via `json_extract(result, '$')` so a step that returned the
-  string `"hello"` in Python reads back as `hello` (not `"hello"`) in bash.
+Per-runtime details live in each runtime's README:
+[`go/`](./go/README.md), [`python/`](./python/README.md),
+[`typescript/`](./typescript/README.md).

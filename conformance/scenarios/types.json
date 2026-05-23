@@ -1,0 +1,23 @@
+{
+  "description": "every JSON value type round-trips through a step",
+  "operations": [
+    {"op": "step", "name": "null_v", "value": null},
+    {"op": "step", "name": "bool_v", "value": true},
+    {"op": "step", "name": "int_v", "value": 42},
+    {"op": "step", "name": "float_v", "value": 3.5},
+    {"op": "step", "name": "string_v", "value": "hello world"},
+    {"op": "step", "name": "array_v", "value": [1, 2, 3]},
+    {"op": "step", "name": "object_v", "value": {"a": 1, "b": "x"}},
+    {"op": "step", "name": "nested_v", "value": {"xs": [1, {"k": "v"}], "n": 0}}
+  ],
+  "expect": [
+    {"name": "null_v", "kind": "step", "status": "done", "value": null},
+    {"name": "bool_v", "kind": "step", "status": "done", "value": true},
+    {"name": "int_v", "kind": "step", "status": "done", "value": 42},
+    {"name": "float_v", "kind": "step", "status": "done", "value": 3.5},
+    {"name": "string_v", "kind": "step", "status": "done", "value": "hello world"},
+    {"name": "array_v", "kind": "step", "status": "done", "value": [1, 2, 3]},
+    {"name": "object_v", "kind": "step", "status": "done", "value": {"a": 1, "b": "x"}},
+    {"name": "nested_v", "kind": "step", "status": "done", "value": {"xs": [1, {"k": "v"}], "n": 0}}
+  ]
+}

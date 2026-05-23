@@ -6,13 +6,13 @@ on:
   pull_request:
 
 jobs:
-  lint-bash:
+  lint-sh:
     name: lint (shellcheck)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck -s sh bash/mundane bash/test/run.sh interop-tests/run.sh
+      - run: shellcheck -s sh bash/test/run.sh
 
   lint-python:
     name: lint (ruff)
@@ -39,12 +39,38 @@ jobs:
       - run: npx biome check src/ test/
         working-directory: typescript
 
-  bash:
-    name: bash tests
+  lint-go:
+    name: lint (go vet)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y sqlite3 uuid-runtime
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go vet ./...
+        working-directory: go
+
+  go:
+    name: go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go test ./...
+        working-directory: go
+
+  sh:
+    name: sh integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go build -o mundane-bin ./cmd/mundane
+        working-directory: go
       - run: ./bash/test/run.sh
 
   python:
@@ -76,21 +102,29 @@ jobs:
       - run: node --test dist/test/basic.test.js
         working-directory: typescript
 
-  interop:
-    name: cross-runtime interop
+  conformance:
+    name: conformance (shared harness)
     runs-on: ubuntu-latest
-    needs: [bash, python, typescript]
+    needs: [go, sh, python, typescript]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y sqlite3 uuid-runtime
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - run: go build -o mundane-bin ./cmd/mundane
+        working-directory: go
+      - run: go build -o conformance-driver ./cmd/conformance
+        working-directory: go
       - run: npm install
         working-directory: typescript
       - run: npx tsc -p .
         working-directory: typescript
-      - run: ./interop-tests/run.sh
+      - run: python3 conformance/run.py
+        env:
+          MUNDANE_BIN: go/mundane-bin
