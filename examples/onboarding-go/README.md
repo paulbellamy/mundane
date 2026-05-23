@@ -53,3 +53,5 @@ go run . drip.db               # everything cached, zero email lines
 - `Step[T]` JSON-round-trips the returned value. Because the check re-encodes
   through a sorted-key map, struct fields must be declared in the same order as
   their JSON keys sort — see the `Receipt` struct in `main.go`.
+- Set `DRIP_WAIT` (e.g. `DRIP_WAIT=50ms`) to override every gap — handy for a
+  fast demo or a smoke test.

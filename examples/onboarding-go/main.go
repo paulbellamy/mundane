@@ -70,7 +70,11 @@ func main() {
 				return err
 			}
 			if s.waitAfter != "" {
-				if err := ctx.Sleep("wait-after-"+s.name, s.waitAfter); err != nil {
+				wait := s.waitAfter
+				if o := os.Getenv("DRIP_WAIT"); o != "" { // overridable for fast demos/tests
+					wait = o
+				}
+				if err := ctx.Sleep("wait-after-"+s.name, wait); err != nil {
 					return err
 				}
 			}

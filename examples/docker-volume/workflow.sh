@@ -16,8 +16,9 @@ step extract   -- sh -c 'echo "  [extract] pulled 1000 rows"; sleep 1'
 
 # A long pause you can interrupt: `docker compose down` (or Ctrl-C) during the
 # nap kills the container, but the volume — and the persisted wake time —
-# survive, so the next run sleeps only the remaining seconds.
-nap  cooldown  30s
+# survive, so the next run sleeps only the remaining seconds. (COOLDOWN is
+# overridable so tests/demos can run fast.)
+nap  cooldown  "${COOLDOWN:-30s}"
 
 step transform -- sh -c 'echo "  [transform] cleaned + deduped"; sleep 1'
 step load      -- sh -c 'echo "  [load] wrote to the warehouse"; sleep 1'

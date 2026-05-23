@@ -20,6 +20,9 @@ docker compose run --rm workflow
 #   ... (then a 30s `nap cooldown`)
 ```
 
+The cooldown is overridable for a quick run — `COOLDOWN=2s docker compose run
+--rm -e COOLDOWN workflow`.
+
 ## Kill it mid-run, then resume
 
 While the run is paused in the `cooldown` nap, interrupt it — `Ctrl-C`, or

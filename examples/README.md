@@ -17,6 +17,21 @@ three, the move is the same: run it, kill it partway (a `CRASH_AT` env var or
 `docker compose down`), run it again, and watch the finished work replay from
 the SQLite file instead of re-executing.
 
+## Verifying
+
+Every example is smoke-tested in CI (and locally) — built, then driven through
+the crash → resume → all-cached cycle with assertions that completed work
+replays instead of re-running:
+
+```sh
+make test-examples      # or: ./examples/smoke.sh
+```
+
+The `docker-volume` image is additionally built and run on a volume in a
+dedicated CI job.
+
+## Inspecting
+
 Inspect any task file with the CLI (`make build-go` from the repo root):
 
 ```sh
