@@ -2,9 +2,116 @@ package mundane
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
+
+func TestStepStructAndLargeIntRoundtrip(t *testing.T) {
+	type User struct {
+		Email string
+		Name  string
+		ID    int64
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+	want := User{Email: "a@b.c", Name: "alice", ID: 9007199254740993}
+
+	if err := Run(path, func(ctx *Ctx) error {
+		got, err := Step(ctx, "fetch", func() (User, error) { return want, nil })
+		if err != nil {
+			return err
+		}
+		if got != want {
+			t.Errorf("first run: got %+v, want %+v", got, want)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	// Resume: value comes from cache and must match exactly, including the
+	// large int64 (read path decodes straight into the struct).
+	if err := Run(path, func(ctx *Ctx) error {
+		got, err := Step(ctx, "fetch", func() (User, error) {
+			t.Error("fn must not run on cache hit")
+			return User{}, nil
+		})
+		if err != nil {
+			return err
+		}
+		if got != want {
+			t.Errorf("resume: got %+v, want %+v", got, want)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+}
+
+func TestFailedStepReruns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+
+	err := Run(path, func(ctx *Ctx) error {
+		_, err := Step(ctx, "s", func() (int, error) { return 0, fmt.Errorf("boom") })
+		return err
+	})
+	var sf *StepFailedError
+	if !errors.As(err, &sf) {
+		t.Fatalf("expected StepFailedError, got %T %v", err, err)
+	}
+
+	// A failed step is not cached (only 'done' is); it must re-run.
+	called := 0
+	if err := Run(path, func(ctx *Ctx) error {
+		v, err := Step(ctx, "s", func() (int, error) { called++; return 7, nil })
+		if err != nil {
+			return err
+		}
+		if v != 7 {
+			t.Errorf("rerun value: got %d, want 7", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("fn called %d times on rerun, want 1", called)
+	}
+}
+
+func TestPendingStepReruns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+
+	// Bootstrap, then leave a pending row behind (simulating a crash mid-step).
+	if err := Run(path, func(ctx *Ctx) error {
+		_, err := ctx.db.Exec(
+			"INSERT INTO mundane_steps (name, kind, encoding, status, started_at) " +
+				"VALUES ('s', 'step', 'json', 'pending', '2020-01-01T00:00:00.000Z')")
+		return err
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	called := 0
+	if err := Run(path, func(ctx *Ctx) error {
+		v, err := Step(ctx, "s", func() (int, error) { called++; return 5, nil })
+		if err != nil {
+			return err
+		}
+		if v != 5 {
+			t.Errorf("value: got %d, want 5", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("pending step fn called %d times, want 1 (must re-run)", called)
+	}
+}
 
 func TestRunBootstrapAndStep(t *testing.T) {
 	dir := t.TempDir()

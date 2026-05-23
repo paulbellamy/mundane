@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -80,11 +81,19 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 		return zero, err
 	}
 	if cached, ok := ctx.cache[name]; ok && cached.Status == StatusDone {
+		if cached.Encoding == EncJSON {
+			// Decode the stored JSON straight into T (not via `any`), so int64
+			// precision survives the round-trip just as it does on write.
+			var out T
+			if err := jsonUnmarshal(cached.Result, &out); err != nil {
+				return zero, fmt.Errorf("decode cached step %q: %w", name, err)
+			}
+			return out, nil
+		}
 		v, err := DecodeResult(cached.Encoding, cached.Result)
 		if err != nil {
 			return zero, fmt.Errorf("decode cached step %q: %w", name, err)
 		}
-		// JSON-typed cache hit: re-marshal into T.
 		out, err := remarshal[T](v)
 		if err != nil {
 			return zero, fmt.Errorf("remarshal cached step %q into target type: %w", name, err)
@@ -206,8 +215,14 @@ func (c *Ctx) WriteSleepRow(name string, wakeAtMs int64) error {
 }
 
 // parseEpoch reads a sleep row's JSON-number payload as integer milliseconds.
+// SPEC §2 only promises "a JSON number", so accept any numeric form (e.g. a
+// float or exponent written by another runtime) and truncate to ms.
 func parseEpoch(raw []byte) (int64, error) {
-	return strconv.ParseInt(string(raw), 10, 64)
+	f, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(f), nil
 }
 
 func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding string) error {

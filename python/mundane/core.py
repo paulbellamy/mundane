@@ -230,7 +230,8 @@ class Context:
             raise StepFailedError(resolved, e) from e
         text = _check_json_roundtrip(value)
         self._task._commit_done(resolved, "json", text)
-        return value
+        # Return the round-tripped value so first run and resume agree exactly.
+        return json.loads(text)
 
     def sleep(self, name: str, duration: Union[str, int, float]) -> None:
         validate_name(name)
@@ -279,7 +280,8 @@ class Context:
             raise StepFailedError(resolved, e) from e
         text = _check_json_roundtrip(value)
         self._task._commit_done(resolved, "json", text)
-        return value
+        # Return the round-tripped value so first run and resume agree exactly.
+        return json.loads(text)
 
     async def asleep(self, name: str, duration: Union[str, int, float]) -> None:
         validate_name(name)

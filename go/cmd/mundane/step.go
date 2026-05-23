@@ -27,6 +27,11 @@ func cmdStep(args []string) int {
 	if args[2] != "--" {
 		return die(2, "expected '--' after name")
 	}
+	// SPEC §5: reject an invalid name with a hard error before running CMD,
+	// so an invalid step never triggers side effects.
+	if err := mundane.ValidateName(name); err != nil {
+		return mapErr(err)
+	}
 	cmd := args[3]
 	cmdArgs := args[4:]
 

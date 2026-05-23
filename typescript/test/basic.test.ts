@@ -207,6 +207,57 @@ test("locked task throws MundaneLockedError", async () => {
   }
 });
 
+test("failed step re-runs on next invocation", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    await assert.rejects(
+      run(path, async (ctx: any) => {
+        await ctx.step("s", async () => {
+          throw new Error("boom");
+        });
+      }),
+    );
+    // A failed step is not cached; it must re-run.
+    const calls: string[] = [];
+    const r = await run(path, async (ctx: any) =>
+      ctx.step("s", async () => {
+        calls.push("s");
+        return 7;
+      }),
+    );
+    assert.equal(r, 7);
+    assert.deepEqual(calls, ["s"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("pending step re-runs on resume", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    // Bootstrap, then leave a pending row behind (simulating a crash mid-step).
+    await run(path, async () => {});
+    const db = new Database(path);
+    db.prepare(
+      "INSERT INTO mundane_steps (name, kind, encoding, result, status, started_at) " +
+        "VALUES ('s', 'step', 'json', NULL, 'pending', ?)",
+    ).run(new Date().toISOString());
+    db.close();
+
+    const calls: string[] = [];
+    const r = await run(path, async (ctx: any) =>
+      ctx.step("s", async () => {
+        calls.push("s");
+        return 5;
+      }),
+    );
+    assert.equal(r, 5);
+    assert.deepEqual(calls, ["s"]);
+  } finally {
+    cleanup();
+  }
+});
+
 test("steps are committed and decode round-trips", async () => {
   const { path, cleanup } = newDb();
   try {

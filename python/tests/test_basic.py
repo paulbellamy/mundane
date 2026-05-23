@@ -1,5 +1,6 @@
 """Basic tests for mundane (Python)."""
 
+import asyncio
 import contextlib
 import json
 import multiprocessing as mp
@@ -153,6 +154,64 @@ class Sleep(unittest.TestCase):
             t0 = time.time()
             mundane.run(path, lambda ctx: ctx.sleep("n", "50ms"))
             self.assertGreaterEqual(time.time() - t0, 0.04)
+
+    def test_resume_sleeps_only_the_remainder(self):
+        """A wake_at still in the future makes resume sleep the remainder."""
+        with TempDB() as path:
+            # Establish the sleep row with a short duration.
+            mundane.run(path, lambda ctx: ctx.sleep("n", "10ms"))
+            # Rewrite wake_at ~300ms into the future to simulate a long nap whose
+            # process was restarted before it elapsed.
+            future = int(time.time() * 1000) + 300
+            conn = sqlite3.connect(path)
+            conn.execute("UPDATE mundane_steps SET result=? WHERE name='n'", (str(future),))
+            conn.commit()
+            conn.close()
+            # Resume must block for the remaining ~300ms (duration arg ignored).
+            t0 = time.time()
+            mundane.run(path, lambda ctx: ctx.sleep("n", "10ms"))
+            self.assertGreaterEqual(time.time() - t0, 0.2)
+
+
+class FailedStep(unittest.TestCase):
+    def test_failed_step_reruns(self):
+        with TempDB() as path:
+            def boom():
+                raise RuntimeError("boom")
+
+            with self.assertRaises(mundane.StepFailedError):
+                mundane.run(path, lambda ctx: ctx.step("s", boom))
+
+            # A failed step is not cached; it must re-run.
+            calls = []
+            r = mundane.run(path, lambda ctx: ctx.step("s", lambda: (calls.append("s"), 7)[1]))
+            self.assertEqual(r, 7)
+            self.assertEqual(calls, ["s"])
+
+
+class Async(unittest.TestCase):
+    def test_arun_astep_asleep(self):
+        async def aval(calls, tag, v):
+            calls.append(tag)
+            return v
+
+        with TempDB() as path:
+            calls = []
+
+            async def wf(ctx):
+                a = await ctx.astep("a", lambda: aval(calls, "a", 1))
+                await ctx.asleep("nap", "10ms")
+                return await ctx.astep("b", lambda: aval(calls, "b", a + 1))
+
+            r = asyncio.run(mundane.arun(path, wf))
+            self.assertEqual(r, 2)
+            self.assertEqual(calls, ["a", "b"])
+
+            # Resume: both steps cache-hit, neither fn runs.
+            calls.clear()
+            r2 = asyncio.run(mundane.arun(path, wf))
+            self.assertEqual(r2, 2)
+            self.assertEqual(calls, [])
 
 
 class Inspect(unittest.TestCase):

@@ -22,6 +22,11 @@ func cmdNap(args []string) int {
 	name := args[1]
 	dur := args[2]
 
+	// SPEC §5: reject an invalid name before touching the DB or sleeping.
+	if err := mundane.ValidateName(name); err != nil {
+		return mapErr(err)
+	}
+
 	ms, err := mundane.ParseDurationMs(dur)
 	if err != nil {
 		return die(2, "%v", err)

@@ -27,32 +27,40 @@ const (
 	StatusFailed  = "failed"
 )
 
-// CheckJSONRoundtrip verifies that v survives json.Marshal -> json.Unmarshal
-// -> deep-equal, matching the Py/TS first-write contract. Returns the JSON
-// text on success.
-func CheckJSONRoundtrip(v any) (string, error) {
+// CheckJSONRoundtrip verifies that v survives a marshal -> unmarshal -> marshal
+// cycle unchanged and returns the canonical JSON text. The round-trip goes
+// through the concrete type T (not `any`), so struct field order and int64
+// precision are preserved — decoding into `any` would sort map keys and route
+// integers through float64, spuriously rejecting ordinary values.
+func CheckJSONRoundtrip[T any](v T) (string, error) {
+	text, err := marshalCanonical(v)
+	if err != nil {
+		return "", &SerializationError{Detail: err.Error()}
+	}
+	var back T
+	if err := json.Unmarshal([]byte(text), &back); err != nil {
+		return "", &SerializationError{Detail: err.Error()}
+	}
+	reEnc, err := marshalCanonical(back)
+	if err != nil {
+		return "", &SerializationError{Detail: err.Error()}
+	}
+	if text != reEnc {
+		return "", &SerializationError{Detail: "value does not round-trip through JSON"}
+	}
+	return text, nil
+}
+
+// marshalCanonical encodes v as compact JSON with HTML escaping disabled and no
+// trailing newline — the on-disk form for json-encoded rows.
+func marshalCanonical(v any) (string, error) {
 	enc := &bytes.Buffer{}
 	encoder := json.NewEncoder(enc)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(v); err != nil {
-		return "", &SerializationError{Detail: err.Error()}
+		return "", err
 	}
-	text := trimTrailingNewline(enc.String())
-
-	var decoded any
-	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
-		return "", &SerializationError{Detail: err.Error()}
-	}
-	reEnc := &bytes.Buffer{}
-	reEncoder := json.NewEncoder(reEnc)
-	reEncoder.SetEscapeHTML(false)
-	if err := reEncoder.Encode(decoded); err != nil {
-		return "", &SerializationError{Detail: err.Error()}
-	}
-	if text != trimTrailingNewline(reEnc.String()) {
-		return "", &SerializationError{Detail: "value does not round-trip through JSON"}
-	}
-	return text, nil
+	return trimTrailingNewline(enc.String()), nil
 }
 
 func trimTrailingNewline(s string) string {

@@ -209,13 +209,14 @@ class ContextImpl implements Context {
     try {
       value = await fn();
     } catch (e) {
-      const msg = e instanceof Error ? e.stack || e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
       this.task.commitFailed(name, msg);
       throw new MundaneStepFailedError(name, e);
     }
     const text = checkJsonRoundtrip(value);
     this.task.commitDone(name, "json", text);
-    return value;
+    // Return the round-tripped value so first run and resume agree exactly.
+    return JSON.parse(text) as T;
   }
 
   async sleep(name: string, duration: string | number): Promise<void> {

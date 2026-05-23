@@ -4,7 +4,7 @@
 
 if [ ! -e {{.DB}} ]; then : >> {{.DB}} || exit 1; fi
 exec {{.LockFD}}<>{{.DB}} || exit 1
-flock -nx {{.LockFD}} || { echo "mundane: {{.DBRaw}} is locked by another process" >&2; exit 75; }
+flock -nx {{.LockFD}} || { printf 'mundane: %s is locked by another process\n' {{.DB}} >&2; exit 75; }
 MUNDANE_LOCK_FD={{.LockFD}}
 MUNDANE_DB={{.DB}}
 MUNDANE_EXE={{.Exe}}
