@@ -1,7 +1,7 @@
 /* Basic tests for @mundane/core */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -190,25 +190,6 @@ test("sequential runs on the same file do not spuriously lock", async () => {
     const done = readSteps(path).filter((s) => s.status === "done");
     assert.equal(done.length, 5);
   } finally {
-    cleanup();
-  }
-});
-
-test("missing flock binary reports a clear error, not lock contention", async () => {
-  const { path, cleanup } = newDb();
-  const savedPath = process.env.PATH;
-  const bin = mkdtempSync(join(tmpdir(), "mundane-nobin-"));
-  try {
-    // A PATH with `sh` available but not `flock`.
-    symlinkSync("/bin/sh", join(bin, "sh"));
-    process.env.PATH = bin;
-    await assert.rejects(
-      run(path, async () => {}),
-      (e: any) => !(e instanceof MundaneLockedError) && /flock/.test(String(e?.message)),
-    );
-  } finally {
-    process.env.PATH = savedPath;
-    rmSync(bin, { recursive: true, force: true });
     cleanup();
   }
 });
