@@ -164,6 +164,36 @@ test("sleep persists wake_at and resumes", async () => {
   }
 });
 
+test("sleep resume ignores an invalid duration", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    await run(path, async (ctx: any) => {
+      await ctx.sleep("n", "1ms");
+    });
+    // Resume ignores the duration arg, so an invalid string must not throw.
+    await run(path, async (ctx: any) => {
+      await ctx.sleep("n", "not-a-duration");
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test("sequential runs on the same file do not spuriously lock", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    // Back-to-back runs: if release() resolved before the helper actually
+    // dropped the flock, a later run would throw MundaneLockedError.
+    for (let i = 0; i < 5; i++) {
+      await run(path, async (ctx: any) => ctx.step(`s${i}`, async () => i));
+    }
+    const done = readSteps(path).filter((s) => s.status === "done");
+    assert.equal(done.length, 5);
+  } finally {
+    cleanup();
+  }
+});
+
 test("non-JSON value raises MundaneSerializationError", async () => {
   const { path, cleanup } = newDb();
   try {
@@ -202,6 +232,89 @@ test("locked task throws MundaneLockedError", async () => {
 
     unblock();
     await first;
+  } finally {
+    cleanup();
+  }
+});
+
+test("failed step re-runs on next invocation", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    await assert.rejects(
+      run(path, async (ctx: any) => {
+        await ctx.step("s", async () => {
+          throw new Error("boom");
+        });
+      }),
+    );
+    // A failed step is not cached; it must re-run.
+    const calls: string[] = [];
+    const r = await run(path, async (ctx: any) =>
+      ctx.step("s", async () => {
+        calls.push("s");
+        return 7;
+      }),
+    );
+    assert.equal(r, 7);
+    assert.deepEqual(calls, ["s"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("failed row is reset to pending during re-run", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    await assert.rejects(
+      run(path, async (ctx: any) => {
+        await ctx.step("s", async () => {
+          throw new Error("boom");
+        });
+      }),
+    );
+    let midStatus = "";
+    let midError: string | null = "stale";
+    await run(path, async (ctx: any) =>
+      ctx.step("s", async () => {
+        const db = new Database(path, { readonly: true });
+        const row = db.prepare("SELECT status, error FROM mundane_steps WHERE name='s'").get() as {
+          status: string;
+          error: string | null;
+        };
+        db.close();
+        midStatus = row.status;
+        midError = row.error;
+        return 7;
+      }),
+    );
+    assert.equal(midStatus, "pending");
+    assert.equal(midError, null);
+  } finally {
+    cleanup();
+  }
+});
+
+test("pending step re-runs on resume", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    // Bootstrap, then leave a pending row behind (simulating a crash mid-step).
+    await run(path, async () => {});
+    const db = new Database(path);
+    db.prepare(
+      "INSERT INTO mundane_steps (name, kind, encoding, result, status, started_at) " +
+        "VALUES ('s', 'step', 'json', NULL, 'pending', ?)",
+    ).run(new Date().toISOString());
+    db.close();
+
+    const calls: string[] = [];
+    const r = await run(path, async (ctx: any) =>
+      ctx.step("s", async () => {
+        calls.push("s");
+        return 5;
+      }),
+    );
+    assert.equal(r, 5);
+    assert.deepEqual(calls, ["s"]);
   } finally {
     cleanup();
   }

@@ -130,6 +130,88 @@ step 'bad name' -- echo hi" >/dev/null 2>&1
 }
 test_bad_name
 
+# ---------- a failing step aborts the whole script ----------
+test_step_failure_aborts_script() {
+    _t "failing step aborts the script and propagates the code"
+    db="$WORKDIR/failabort.db"
+    marker="$WORKDIR/after-fail-marker"
+    rm -f "$db" "$marker"
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step bad -- sh -c 'exit 5'
+touch '$marker'" >/dev/null 2>&1
+    rc=$?
+    set -e
+    [ "$rc" = "5" ] || { _fail "expected exit 5, got $rc"; return; }
+    [ ! -e "$marker" ] || { _fail "script continued after a failed step"; return; }
+    _pass
+}
+test_step_failure_aborts_script
+
+# ---------- step CMD must not inherit the lock fd ----------
+test_step_cmd_no_lock_fd() {
+    _t "step CMD does not inherit the lock fd"
+    [ -r /proc/self/fd ] || { printf 'skip (no /proc)\n'; return; }
+    db="$WORKDIR/nofd.db"
+    rm -f "$db"
+    out=$(sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step probe -- sh -c 'ls /proc/\$\$/fd'")
+    # The lock lives on fd 9; it must not be visible to CMD (SPEC §3).
+    case "$out" in
+        *9*) _fail "lock fd leaked into CMD: <$out>"; return ;;
+    esac
+    _pass
+}
+test_step_cmd_no_lock_fd
+
+# ---------- invalid name rejected before CMD runs ----------
+test_bad_name_no_side_effect() {
+    _t "invalid step name rejected before CMD executes"
+    db="$WORKDIR/badname2.db"
+    marker="$WORKDIR/sideeffect-marker"
+    rm -f "$db" "$marker"
+    set +e
+    sh -c "eval \"\$('$MUNDANE' init '$db')\"
+step 'bad name' -- touch '$marker'" >/dev/null 2>&1
+    rc=$?
+    set -e
+    [ "$rc" = "2" ] || { _fail "expected exit 2, got $rc"; return; }
+    [ ! -e "$marker" ] || { _fail "CMD executed despite invalid name"; return; }
+    _pass
+}
+test_bad_name_no_side_effect
+
+# ---------- malicious db path can't inject via the lock message ----------
+test_lock_message_no_injection() {
+    _t "lock-contention message does not eval the db path"
+    inj="$WORKDIR/inj"
+    mkdir -p "$inj"
+    pwned="$inj/pwned"
+    rm -f "$pwned"
+    # Absolute binary path (the test subshells cd into $inj).
+    mun=$(cd "$(dirname "$MUNDANE")" && pwd)/$(basename "$MUNDANE")
+    # A relative filename (no slashes, so it's a real creatable file) carrying
+    # a shell breakout. Under a naive double-quoted echo of the path, the
+    # lock-failure branch would run `touch pwned`.
+    fname='x"; touch pwned; echo ".db'
+
+    # Hold the lock in the background (cwd = $inj so the path resolves there).
+    ( cd "$inj" && sh -c "eval \"\$('$mun' init \"\$1\")\"
+nap a 1s" _ "$fname" ) &
+    pid=$!
+    sleep 0.2
+
+    set +e
+    ( cd "$inj" && sh -c "eval \"\$('$mun' init \"\$1\")\"" _ "$fname" ) >/dev/null 2>&1
+    rc=$?
+    set -e
+    wait $pid
+    [ "$rc" = "75" ] || { _fail "expected exit 75, got $rc"; return; }
+    [ ! -e "$pwned" ] || { _fail "path injection executed (pwned created)"; return; }
+    _pass
+}
+test_lock_message_no_injection
+
 # ---------- status/steps/get subcommands ----------
 test_inspect() {
     _t "status/steps/get subcommands"

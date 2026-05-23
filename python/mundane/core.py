@@ -53,6 +53,14 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _duration_to_ms(duration: Union[str, int, float]) -> int:
+    if isinstance(duration, str):
+        return parse_duration_ms(duration)
+    if isinstance(duration, (int, float)):
+        return int(duration)
+    raise TypeError(f"duration must be str or number, got {type(duration).__name__}")
+
+
 def _check_json_roundtrip(value: Any) -> str:
     """Validate that value survives JSON.dumps -> JSON.loads -> deep equal.
 
@@ -153,9 +161,25 @@ class _Task:
         self.seen.add(name)
 
     def _ensure_pending_row(self, name: str, kind: str, encoding: str) -> _StepRow:
-        """Insert a pending row if not present; return the (possibly fresh) row."""
+        """Insert a pending row if not present; return the (possibly fresh) row.
+
+        A leftover pending/failed row (never 'done' on this path) is reset to
+        pending so the on-disk state reflects the retry, not a stale failure.
+        """
         existing = self.cache.get(name)
         if existing is not None:
+            self.conn.execute(
+                "UPDATE mundane_steps "
+                "SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL "
+                "WHERE name=?",
+                (kind, encoding, name),
+            )
+            self.conn.commit()
+            existing.kind = kind
+            existing.encoding = encoding
+            existing.status = "pending"
+            existing.result = None
+            existing.error = None
             return existing
         now = _iso_now()
         self.conn.execute(
@@ -206,6 +230,10 @@ class _Task:
             (error, finished, name),
         )
         self.conn.commit()
+        row = self.cache.get(name)
+        if row is not None:
+            row.status = "failed"
+            row.error = error
 
 
 class Context:
@@ -225,33 +253,26 @@ class Context:
         self._task._ensure_pending_row(resolved, "step", "json")
         try:
             value = fn()
-        except BaseException as e:
+        except Exception as e:
             self._task._commit_failed(resolved, repr(e))
             raise StepFailedError(resolved, e) from e
         text = _check_json_roundtrip(value)
         self._task._commit_done(resolved, "json", text)
-        return value
+        # Return the round-tripped value so first run and resume agree exactly.
+        return json.loads(text)
 
     def sleep(self, name: str, duration: Union[str, int, float]) -> None:
         validate_name(name)
         self._task._check_seen(name)
         resolved = name
-        if isinstance(duration, str):
-            ms = parse_duration_ms(duration)
-        elif isinstance(duration, (int, float)):
-            ms = int(duration)
-        else:
-            raise TypeError(
-                f"duration must be str or number, got {type(duration).__name__}"
-            )
-
         row = self._task.cache.get(resolved)
         if row is not None and row.status == "done":
+            # Resume: duration arg is ignored (SPEC §6); don't parse it.
             wake_at = _decode_result(row)
             self._sleep_remaining(int(wake_at))
             return
         # absent / pending: compute wake_at, write json-number row, sleep.
-        wake_at = _now_ms() + ms
+        wake_at = _now_ms() + _duration_to_ms(duration)
         self._task._ensure_pending_row(resolved, "sleep", "json")
         self._task._commit_done(resolved, "json", str(wake_at))
         self._sleep_remaining(wake_at)
@@ -274,31 +295,24 @@ class Context:
         self._task._ensure_pending_row(resolved, "step", "json")
         try:
             value = await fn()
-        except BaseException as e:
+        except Exception as e:
             self._task._commit_failed(resolved, repr(e))
             raise StepFailedError(resolved, e) from e
         text = _check_json_roundtrip(value)
         self._task._commit_done(resolved, "json", text)
-        return value
+        # Return the round-tripped value so first run and resume agree exactly.
+        return json.loads(text)
 
     async def asleep(self, name: str, duration: Union[str, int, float]) -> None:
         validate_name(name)
         self._task._check_seen(name)
         resolved = name
-        if isinstance(duration, str):
-            ms = parse_duration_ms(duration)
-        elif isinstance(duration, (int, float)):
-            ms = int(duration)
-        else:
-            raise TypeError(
-                f"duration must be str or number, got {type(duration).__name__}"
-            )
-
         row = self._task.cache.get(resolved)
         if row is not None and row.status == "done":
+            # Resume: duration arg is ignored (SPEC §6); don't parse it.
             wake_at = int(_decode_result(row))
         else:
-            wake_at = _now_ms() + ms
+            wake_at = _now_ms() + _duration_to_ms(duration)
             self._task._ensure_pending_row(resolved, "sleep", "json")
             self._task._commit_done(resolved, "json", str(wake_at))
         remaining = wake_at - _now_ms()
@@ -316,6 +330,7 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
             f"{path}: locked by another process"
         ) from None
 
+    conn: Optional[sqlite3.Connection] = None
     try:
         conn = sqlite3.connect(path, isolation_level=None)  # autocommit
         conn.execute("PRAGMA journal_mode = DELETE")
@@ -372,6 +387,8 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
         task = _Task(conn)
         return lock, conn, task
     except Exception:
+        if conn is not None:
+            conn.close()
         lock.release()
         raise
 
@@ -389,8 +406,10 @@ def run(path: str, fn: Callable[[Context], Any]) -> Any:
         ctx = Context(task)
         return fn(ctx)
     finally:
-        conn.close()
-        lock.release()
+        try:
+            conn.close()
+        finally:
+            lock.release()
 
 
 async def arun(path: str, fn: Callable[[Context], Awaitable[Any]]) -> Any:
@@ -400,5 +419,7 @@ async def arun(path: str, fn: Callable[[Context], Awaitable[Any]]) -> Any:
         ctx = Context(task)
         return await fn(ctx)
     finally:
-        conn.close()
-        lock.release()
+        try:
+            conn.close()
+        finally:
+            lock.release()

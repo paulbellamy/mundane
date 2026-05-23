@@ -151,7 +151,22 @@ class TaskState {
 
   ensurePendingRow(name: string, kind: "step" | "sleep", encoding: StepRow["encoding"]): StepRow {
     const existing = this.cache.get(name);
-    if (existing) return existing;
+    if (existing) {
+      // Re-running a leftover pending/failed row (never 'done' on this path):
+      // reset it to pending so the on-disk state reflects the retry (SPEC §2).
+      this.db
+        .prepare(
+          "UPDATE mundane_steps SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL " +
+            "WHERE name=?",
+        )
+        .run(kind, encoding, name);
+      existing.kind = kind;
+      existing.encoding = encoding;
+      existing.status = "pending";
+      existing.result = null;
+      existing.error = null;
+      return existing;
+    }
     const now = new Date().toISOString();
     this.db
       .prepare(
@@ -209,25 +224,27 @@ class ContextImpl implements Context {
     try {
       value = await fn();
     } catch (e) {
-      const msg = e instanceof Error ? e.stack || e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
       this.task.commitFailed(name, msg);
       throw new MundaneStepFailedError(name, e);
     }
     const text = checkJsonRoundtrip(value);
     this.task.commitDone(name, "json", text);
-    return value;
+    // Return the round-tripped value so first run and resume agree exactly.
+    return JSON.parse(text) as T;
   }
 
   async sleep(name: string, duration: string | number): Promise<void> {
     validateName(name);
     this.task.checkSeen(name);
-    const ms = parseDurationMs(duration);
     const cached = this.task.cache.get(name);
     let wakeAt: number;
     if (cached && cached.status === "done") {
+      // Resume: the duration arg is ignored (SPEC §6), so don't parse it — a
+      // now-invalid duration string must not fail an otherwise-no-op resume.
       wakeAt = Number(decodeResult(cached));
     } else {
-      wakeAt = Date.now() + ms;
+      wakeAt = Date.now() + parseDurationMs(duration);
       this.task.ensurePendingRow(name, "sleep", "json");
       this.task.commitDone(name, "json", String(wakeAt));
     }

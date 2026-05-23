@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -80,11 +81,19 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 		return zero, err
 	}
 	if cached, ok := ctx.cache[name]; ok && cached.Status == StatusDone {
+		if cached.Encoding == EncJSON {
+			// Decode the stored JSON straight into T (not via `any`), so int64
+			// precision survives the round-trip just as it does on write.
+			var out T
+			if err := jsonUnmarshal(cached.Result, &out); err != nil {
+				return zero, fmt.Errorf("decode cached step %q: %w", name, err)
+			}
+			return out, nil
+		}
 		v, err := DecodeResult(cached.Encoding, cached.Result)
 		if err != nil {
 			return zero, fmt.Errorf("decode cached step %q: %w", name, err)
 		}
-		// JSON-typed cache hit: re-marshal into T.
 		out, err := remarshal[T](v)
 		if err != nil {
 			return zero, fmt.Errorf("remarshal cached step %q into target type: %w", name, err)
@@ -97,6 +106,10 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 	value, err := fn()
 	if err != nil {
 		_ = commitFailed(ctx.db, name, err.Error())
+		if r, ok := ctx.cache[name]; ok {
+			r.Status = StatusFailed
+			r.Err = err.Error()
+		}
 		return zero, &StepFailedError{Name: name, Err: err}
 	}
 	text, err := CheckJSONRoundtrip(value)
@@ -107,7 +120,13 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 	if err := commitDone(ctx.db, ctx.cache, name, EncJSON, []byte(text)); err != nil {
 		return zero, err
 	}
-	return value, nil
+	// Return the round-tripped value (decoded into T) so the first run and a
+	// later cache hit yield identical values, even for `any`-typed results.
+	var out T
+	if err := jsonUnmarshal([]byte(text), &out); err != nil {
+		return zero, fmt.Errorf("decode step %q result: %w", name, err)
+	}
+	return out, nil
 }
 
 // Sleep pauses the workflow until `duration` has elapsed since the first time
@@ -119,18 +138,20 @@ func (c *Ctx) Sleep(name, duration string) error {
 	if err := c.checkSeen(name); err != nil {
 		return err
 	}
-	ms, err := ParseDurationMs(duration)
-	if err != nil {
-		return err
-	}
 	var wakeAt int64
 	if cached, ok := c.cache[name]; ok && cached.Status == StatusDone {
+		// Resume: the duration arg is ignored (SPEC §6), so don't parse it —
+		// a now-invalid duration string must not fail an otherwise-no-op resume.
 		w, err := parseEpoch(cached.Result)
 		if err != nil {
 			return fmt.Errorf("decode sleep row %q: %w", name, err)
 		}
 		wakeAt = w
 	} else {
+		ms, err := ParseDurationMs(duration)
+		if err != nil {
+			return err
+		}
 		wakeAt = NowMs() + ms
 		if err := ensurePending(c.db, c.cache, name, KindSleep, EncJSON); err != nil {
 			return err
@@ -206,12 +227,32 @@ func (c *Ctx) WriteSleepRow(name string, wakeAtMs int64) error {
 }
 
 // parseEpoch reads a sleep row's JSON-number payload as integer milliseconds.
+// SPEC §2 only promises "a JSON number", so accept any numeric form (e.g. a
+// float or exponent written by another runtime) and truncate to ms.
 func parseEpoch(raw []byte) (int64, error) {
-	return strconv.ParseInt(string(raw), 10, 64)
+	f, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(f), nil
 }
 
 func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding string) error {
-	if _, ok := cache[name]; ok {
+	if existing, ok := cache[name]; ok {
+		// Re-running a leftover pending/failed row (this path is never reached
+		// for a 'done' row). Reset it to pending so the on-disk state reflects
+		// the retry rather than a stale failure (SPEC §2).
+		if _, err := db.Exec(
+			"UPDATE mundane_steps SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL WHERE name=?",
+			kind, encoding, name,
+		); err != nil {
+			return fmt.Errorf("reset pending: %w", err)
+		}
+		existing.Status = StatusPending
+		existing.Kind = kind
+		existing.Encoding = encoding
+		existing.Result = nil
+		existing.Err = ""
 		return nil
 	}
 	now := IsoNow()

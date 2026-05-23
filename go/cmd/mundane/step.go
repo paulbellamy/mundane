@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/paulbellamy/mundane/go/mundane"
 )
@@ -16,9 +17,13 @@ import (
 // and emits. On cache hit it just emits the cached payload. Nonzero CMD exit
 // marks the step failed and exits with that code.
 func cmdStep(args []string) int {
-	if mundane.LockFDFromEnv() < 0 {
+	lockFD := mundane.LockFDFromEnv()
+	if lockFD < 0 {
 		return die(2, `__step requires MUNDANE_LOCK_FD (run via eval "$(mundane init <db>)")`)
 	}
+	// Don't leak the lock fd into CMD (or anything CMD spawns), which could
+	// otherwise keep the flock held after the shell exits (SPEC §3).
+	_ = mundane.SetCloseOnExec(lockFD)
 	if len(args) < 4 {
 		return die(2, "usage: __step <db> <name> -- CMD [args...]")
 	}
@@ -26,6 +31,11 @@ func cmdStep(args []string) int {
 	name := args[1]
 	if args[2] != "--" {
 		return die(2, "expected '--' after name")
+	}
+	// SPEC §5: reject an invalid name with a hard error before running CMD,
+	// so an invalid step never triggers side effects.
+	if err := mundane.ValidateName(name); err != nil {
+		return mapErr(err)
 	}
 	cmd := args[3]
 	cmdArgs := args[4:]
@@ -51,6 +61,14 @@ func cmdStep(args []string) int {
 			_ = ctx.MarkStepFailed(name, msg)
 			if ee, ok := runErr.(*exec.ExitError); ok {
 				stepExit = ee.ExitCode()
+				if stepExit < 0 {
+					// Killed by a signal: use the conventional 128+signo.
+					if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+						stepExit = 128 + int(ws.Signal())
+					} else {
+						stepExit = 1
+					}
+				}
 			} else {
 				stepExit = 1
 			}

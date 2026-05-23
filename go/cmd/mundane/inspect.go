@@ -13,6 +13,11 @@ import (
 // the binary is the single inspection surface across all runtimes.
 
 func openRO(path string) (*sql.DB, error) {
+	// Stat first so a missing/unreadable path gives a clear error rather than
+	// modernc's confusing "out of memory" on a read-only open.
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("cannot open task %q: %w", path, err)
+	}
 	return sql.Open("sqlite", "file:"+path+"?mode=ro")
 }
 

@@ -1,4 +1,4 @@
-"""mundane v1 — tiny durable-execution library.
+"""mundane — tiny durable-execution library.
 
 One workflow run is one SQLite file. Crash, re-invoke, resume.
 """

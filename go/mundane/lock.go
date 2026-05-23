@@ -48,6 +48,14 @@ func (l *FileLock) Release() {
 	l.fd = -1
 }
 
+// SetCloseOnExec marks fd FD_CLOEXEC so a child process (e.g. a step's CMD)
+// does not inherit the lock fd and accidentally keep the flock held after the
+// shell that owns it exits.
+func SetCloseOnExec(fd int) error {
+	_, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, unix.FD_CLOEXEC)
+	return err
+}
+
 // LockFDFromEnv parses MUNDANE_LOCK_FD; returns -1 if unset or invalid.
 func LockFDFromEnv() int {
 	v := os.Getenv("MUNDANE_LOCK_FD")

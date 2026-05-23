@@ -1,5 +1,6 @@
 """Basic tests for mundane (Python)."""
 
+import asyncio
 import contextlib
 import json
 import multiprocessing as mp
@@ -145,6 +146,12 @@ class Sleep(unittest.TestCase):
             elapsed2 = time.time() - t0
             self.assertLess(elapsed2, 0.2)
 
+    def test_resume_ignores_invalid_duration(self):
+        with TempDB() as path:
+            mundane.run(path, lambda ctx: ctx.sleep("n", "1ms"))
+            # Resume ignores the duration arg, so an invalid string is a no-op.
+            mundane.run(path, lambda ctx: ctx.sleep("n", "not-a-duration"))
+
     def test_sleep_remaining_on_resume(self):
         """If we crash mid-sleep, next run should sleep only the remaining time."""
         with TempDB() as path:
@@ -153,6 +160,88 @@ class Sleep(unittest.TestCase):
             t0 = time.time()
             mundane.run(path, lambda ctx: ctx.sleep("n", "50ms"))
             self.assertGreaterEqual(time.time() - t0, 0.04)
+
+    def test_resume_sleeps_only_the_remainder(self):
+        """A wake_at still in the future makes resume sleep the remainder."""
+        with TempDB() as path:
+            # Establish the sleep row with a short duration.
+            mundane.run(path, lambda ctx: ctx.sleep("n", "10ms"))
+            # Rewrite wake_at ~300ms into the future to simulate a long nap whose
+            # process was restarted before it elapsed.
+            future = int(time.time() * 1000) + 300
+            conn = sqlite3.connect(path)
+            conn.execute("UPDATE mundane_steps SET result=? WHERE name='n'", (str(future),))
+            conn.commit()
+            conn.close()
+            # Resume must block for the remaining ~300ms (duration arg ignored).
+            t0 = time.time()
+            mundane.run(path, lambda ctx: ctx.sleep("n", "10ms"))
+            self.assertGreaterEqual(time.time() - t0, 0.2)
+
+
+class FailedStep(unittest.TestCase):
+    def test_failed_step_reruns(self):
+        with TempDB() as path:
+            def boom():
+                raise RuntimeError("boom")
+
+            with self.assertRaises(mundane.StepFailedError):
+                mundane.run(path, lambda ctx: ctx.step("s", boom))
+
+            # A failed step is not cached; it must re-run.
+            calls = []
+            r = mundane.run(path, lambda ctx: ctx.step("s", lambda: (calls.append("s"), 7)[1]))
+            self.assertEqual(r, 7)
+            self.assertEqual(calls, ["s"])
+
+    def test_failed_row_reset_to_pending_during_rerun(self):
+        with TempDB() as path:
+            def boom():
+                raise RuntimeError("boom")
+
+            with self.assertRaises(mundane.StepFailedError):
+                mundane.run(path, lambda ctx: ctx.step("s", boom))
+
+            # While the re-run body executes, the row must read 'pending' with
+            # the stale error cleared (the reset committed before fn runs).
+            seen = {}
+
+            def observe():
+                conn = sqlite3.connect(path)
+                seen["status"], seen["error"] = conn.execute(
+                    "SELECT status, error FROM mundane_steps WHERE name='s'"
+                ).fetchone()
+                conn.close()
+                return 7
+
+            mundane.run(path, lambda ctx: ctx.step("s", observe))
+            self.assertEqual(seen["status"], "pending")
+            self.assertIsNone(seen["error"])
+
+
+class Async(unittest.TestCase):
+    def test_arun_astep_asleep(self):
+        async def aval(calls, tag, v):
+            calls.append(tag)
+            return v
+
+        with TempDB() as path:
+            calls = []
+
+            async def wf(ctx):
+                a = await ctx.astep("a", lambda: aval(calls, "a", 1))
+                await ctx.asleep("nap", "10ms")
+                return await ctx.astep("b", lambda: aval(calls, "b", a + 1))
+
+            r = asyncio.run(mundane.arun(path, wf))
+            self.assertEqual(r, 2)
+            self.assertEqual(calls, ["a", "b"])
+
+            # Resume: both steps cache-hit, neither fn runs.
+            calls.clear()
+            r2 = asyncio.run(mundane.arun(path, wf))
+            self.assertEqual(r2, 2)
+            self.assertEqual(calls, [])
 
 
 class Inspect(unittest.TestCase):

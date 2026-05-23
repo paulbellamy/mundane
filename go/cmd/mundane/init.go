@@ -32,7 +32,6 @@ func cmdInit(args []string) int {
 	}
 	data := map[string]string{
 		"DB":     shellQuote(abs),
-		"DBRaw":  abs,
 		"Exe":    shellQuote(exe),
 		"LockFD": "9",
 	}

@@ -14,10 +14,10 @@ await run("task.db", async (ctx) => {
 
 ## Implementation notes
 
-- **Locking.** Node has no built-in `flock` binding, so the runtime
-  spawns a tiny `sh` helper that holds the actual
-  `flock(LOCK_EX | LOCK_NB)` on the SQLite file's fd and releases it when
-  our stdin closes. The lock interoperates with the other runtimes: a
-  lock held by one is visible to the rest.
+- **Locking.** The runtime opens the SQLite file and takes
+  `flock(LOCK_EX | LOCK_NB)` on its fd via the `fs-ext` native binding —
+  no subprocess. It is the same `flock(2)` the bash, Go, and Python
+  runtimes use, so a lock held by one is visible to the rest, and the
+  kernel drops it automatically if the process dies.
 - **Synchronous DB.** Built on `better-sqlite3` (sync), matching the
   sync model of flock + body + commit.

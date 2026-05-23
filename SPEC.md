@@ -317,10 +317,12 @@ err := mundane.Run("task.db", func(ctx *mundane.Ctx) error {
 JSON-round-tripped on first write and remarshalled into `T` on cache hits.
 `ctx.Sleep(name, duration)` mirrors the bash/Py/TS shape.
 
-JSON contract: the value returned from `fn` must satisfy `bytes.Equal(
-json.Marshal(v), json.Marshal(json.Unmarshal(json.Marshal(v))))`. The
-runtime performs that check on the first write and returns
-`*SerializationError` if it fails.
+JSON contract: the value returned from `fn` must survive a round-trip
+through its own type `T` — `marshal(v)` equals `marshal(unmarshal[T](marshal(v)))`.
+Round-tripping through `T` (rather than `any`) preserves struct field order
+and `int64` precision; decoding into `any` would sort map keys and route
+integers through `float64`, rejecting ordinary values. The runtime performs
+that check on the first write and returns `*SerializationError` if it fails.
 
 Lock contention returns `*LockedError`. Duplicate step name returns
 `*DuplicateStepError`. Invalid name returns `*InvalidNameError`.
