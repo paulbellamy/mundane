@@ -17,6 +17,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { MundaneLockedError } from "./errors";
 
 const HELPER_SCRIPT = `
+command -v flock >/dev/null 2>&1 || { echo NO_FLOCK >&2; exit 77; }
 exec 9<>"$1" || { echo OPEN_FAILED >&2; exit 76; }
 flock -nx 9 || exit 75
 echo READY
@@ -60,6 +61,16 @@ export function acquireLock(path: string): Promise<AcquiredLock> {
       if (settled) return;
       if (code === 75) {
         settle(() => reject(new MundaneLockedError(`${path}: locked by another process`)));
+        return;
+      }
+      if (code === 77) {
+        settle(() =>
+          reject(
+            new Error(
+              "mundane: 'flock' not found on PATH (required for locking; install util-linux)",
+            ),
+          ),
+        );
         return;
       }
       settle(() =>
