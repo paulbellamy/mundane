@@ -79,6 +79,11 @@ function makeAcquired(child: ChildProcess): AcquiredLock {
     release(): Promise<void> {
       if (released) return Promise.resolve();
       released = true;
+      // If the helper has already exited, the OS has dropped the flock and the
+      // "exit" event won't fire again — resolve now instead of waiting forever.
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return Promise.resolve();
+      }
       return new Promise<void>((resolve) => {
         let resolved = false;
         const done = () => {
