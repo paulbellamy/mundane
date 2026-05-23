@@ -39,7 +39,7 @@ _mundane_now_ms() {
 
 _mundane_uuid() {
     if command -v uuidgen >/dev/null 2>&1; then
-        uuidgen | tr 'A-Z' 'a-z'
+        uuidgen | tr '[:upper:]' '[:lower:]'
     elif [ -r /proc/sys/kernel/random/uuid ]; then
         cat /proc/sys/kernel/random/uuid
     else
@@ -296,7 +296,9 @@ _mundane_parse_duration_ms() {
 nap() {
     _name="${1:-}"
     _dur="${2:-}"
-    [ -n "$_name" ] && [ -n "$_dur" ] || _mundane_die "nap: usage: nap NAME DURATION" 2
+    if [ -z "$_name" ] || [ -z "$_dur" ]; then
+        _mundane_die "nap: usage: nap NAME DURATION" 2
+    fi
     _mundane_validate_name "$_name"
     _resolved=$(_mundane_next_name "$_name")
     _ms=$(_mundane_parse_duration_ms "$_dur")

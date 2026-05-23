@@ -162,7 +162,7 @@ except mundane.LockedError:
     set -e
     wait $pid
 
-    grep -q LOCKED "$WORKDIR/out.txt" || { _fail "python didnt see lock: $(cat $WORKDIR/out.txt)"; return; }
+    grep -q LOCKED "$WORKDIR/out.txt" || { _fail "python didnt see lock: $(cat "$WORKDIR/out.txt")"; return; }
     _pass
 }
 test_lock_interop

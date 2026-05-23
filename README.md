@@ -4,6 +4,11 @@ A tiny durable-execution library. One workflow run is one SQLite file.
 Crash, re-invoke, resume. No daemon, no broker, no scheduler — bring
 your own cron.
 
+Inspired by [Absurd](https://github.com/earendil-works/absurd) — same
+"durable workflows are absurdly simple" thesis, swapping Postgres for
+SQLite so a workflow is one portable file you can `cp`, `mv`, or ship in
+a tarball.
+
 Three runtimes ship from this repo and interoperate row-for-row on the
 same on-disk format:
 
@@ -53,18 +58,22 @@ await run("task.db", async (ctx) => {
 ## Running the tests
 
 ```sh
-# Bash
-./bash/test/run.sh
-
-# Python
-cd python && python3 -m unittest tests.test_basic -v
-
-# TypeScript
-cd typescript && npm install && npx tsc -p . && node --test dist/test/
-
-# Cross-runtime interop
-./interop-tests/run.sh
+make test       # bash + python + typescript + interop
+make lint       # shellcheck on every sh script
 ```
+
+Or by runtime:
+
+```sh
+./bash/test/run.sh                                # bash
+cd python && python3 -m unittest tests.test_basic # python
+cd typescript && npm install \
+  && npx tsc -p . && node --test dist/test/      # typescript
+./interop-tests/run.sh                            # cross-runtime
+```
+
+CI (GitHub Actions) runs all of the above plus shellcheck on every push
+and pull request.
 
 ## Implementation notes
 

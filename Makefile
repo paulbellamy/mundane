@@ -1,6 +1,10 @@
-.PHONY: test test-bash test-python test-ts test-interop build-ts clean
+.PHONY: test test-bash test-python test-ts test-interop build-ts lint clean
 
 test: test-bash test-python test-ts test-interop
+
+lint:
+	@echo "=== shellcheck ==="
+	@shellcheck -s sh bash/mundane bash/test/run.sh interop-tests/run.sh
 
 test-bash:
 	@echo "=== bash ==="
