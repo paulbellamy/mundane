@@ -162,11 +162,13 @@ class _Task:
         if existing is not None:
             self.conn.execute(
                 "UPDATE mundane_steps "
-                "SET status='pending', result=NULL, error=NULL, finished_at=NULL "
+                "SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL "
                 "WHERE name=?",
-                (name,),
+                (kind, encoding, name),
             )
             self.conn.commit()
+            existing.kind = kind
+            existing.encoding = encoding
             existing.status = "pending"
             existing.result = None
             existing.error = None
@@ -239,7 +241,7 @@ class Context:
         self._task._ensure_pending_row(resolved, "step", "json")
         try:
             value = fn()
-        except BaseException as e:
+        except Exception as e:
             self._task._commit_failed(resolved, repr(e))
             raise StepFailedError(resolved, e) from e
         text = _check_json_roundtrip(value)
@@ -289,7 +291,7 @@ class Context:
         self._task._ensure_pending_row(resolved, "step", "json")
         try:
             value = await fn()
-        except BaseException as e:
+        except Exception as e:
             self._task._commit_failed(resolved, repr(e))
             raise StepFailedError(resolved, e) from e
         text = _check_json_roundtrip(value)
@@ -332,6 +334,7 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
             f"{path}: locked by another process"
         ) from None
 
+    conn: Optional[sqlite3.Connection] = None
     try:
         conn = sqlite3.connect(path, isolation_level=None)  # autocommit
         conn.execute("PRAGMA journal_mode = DELETE")
@@ -388,6 +391,8 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
         task = _Task(conn)
         return lock, conn, task
     except Exception:
+        if conn is not None:
+            conn.close()
         lock.release()
         raise
 
@@ -405,8 +410,10 @@ def run(path: str, fn: Callable[[Context], Any]) -> Any:
         ctx = Context(task)
         return fn(ctx)
     finally:
-        conn.close()
-        lock.release()
+        try:
+            conn.close()
+        finally:
+            lock.release()
 
 
 async def arun(path: str, fn: Callable[[Context], Awaitable[Any]]) -> Any:
@@ -416,5 +423,7 @@ async def arun(path: str, fn: Callable[[Context], Awaitable[Any]]) -> Any:
         ctx = Context(task)
         return await fn(ctx)
     finally:
-        conn.close()
-        lock.release()
+        try:
+            conn.close()
+        finally:
+            lock.release()

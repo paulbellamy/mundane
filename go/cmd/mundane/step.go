@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/paulbellamy/mundane/go/mundane"
 )
@@ -56,6 +57,14 @@ func cmdStep(args []string) int {
 			_ = ctx.MarkStepFailed(name, msg)
 			if ee, ok := runErr.(*exec.ExitError); ok {
 				stepExit = ee.ExitCode()
+				if stepExit < 0 {
+					// Killed by a signal: use the conventional 128+signo.
+					if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+						stepExit = 128 + int(ws.Signal())
+					} else {
+						stepExit = 1
+					}
+				}
 			} else {
 				stepExit = 1
 			}

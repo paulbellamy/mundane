@@ -4,8 +4,50 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+func TestStepAnyResultStableAcrossRuns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+
+	var first, hit any
+	if err := Run(path, func(ctx *Ctx) error {
+		v, err := Step(ctx, "s", func() (any, error) { return map[string]any{"n": 42}, nil })
+		first = v
+		return err
+	}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if err := Run(path, func(ctx *Ctx) error {
+		v, err := Step(ctx, "s", func() (any, error) { return nil, nil })
+		hit = v
+		return err
+	}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	// First-run and cache-hit must agree even for `any`-typed results (both
+	// decode the stored JSON, so numbers are float64 on both sides).
+	if !reflect.DeepEqual(first, hit) {
+		t.Errorf("first run %#v != cache hit %#v", first, hit)
+	}
+}
+
+func TestRunLocksDespiteLockFDEnv(t *testing.T) {
+	// A stray MUNDANE_LOCK_FD in the environment must not disable locking in
+	// the public Run (only the CLI's RunAdoptCLI adopts a parent lock).
+	t.Setenv("MUNDANE_LOCK_FD", "7")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+	err := Run(path, func(*Ctx) error {
+		return Run(path, func(*Ctx) error { return nil })
+	})
+	var le *LockedError
+	if !errors.As(err, &le) {
+		t.Fatalf("public Run must still acquire its own lock; got %T %v", err, err)
+	}
+}
 
 func TestStepStructAndLargeIntRoundtrip(t *testing.T) {
 	type User struct {

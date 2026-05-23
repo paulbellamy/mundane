@@ -156,10 +156,12 @@ class TaskState {
       // reset it to pending so the on-disk state reflects the retry (SPEC §2).
       this.db
         .prepare(
-          "UPDATE mundane_steps SET status='pending', result=NULL, error=NULL, finished_at=NULL " +
+          "UPDATE mundane_steps SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL " +
             "WHERE name=?",
         )
-        .run(name);
+        .run(kind, encoding, name);
+      existing.kind = kind;
+      existing.encoding = encoding;
       existing.status = "pending";
       existing.result = null;
       existing.error = null;

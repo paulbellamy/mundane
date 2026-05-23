@@ -93,15 +93,27 @@ function makeAcquired(child: ChildProcess): AcquiredLock {
         } catch {
           // ignore: child may already be gone
         }
-        // Hard backup: SIGTERM after 500ms.
-        const t = setTimeout(() => {
+        // Backups so release() can never hang: SIGTERM at 500ms, then SIGKILL
+        // (and resolve regardless) at 1500ms if the helper still hasn't exited.
+        const term = setTimeout(() => {
           try {
             child.kill("SIGTERM");
           } catch {
             // ignore
           }
         }, 500);
-        child.once("exit", () => clearTimeout(t));
+        const kill = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // ignore
+          }
+          done();
+        }, 1500);
+        child.once("exit", () => {
+          clearTimeout(term);
+          clearTimeout(kill);
+        });
       });
     },
   };

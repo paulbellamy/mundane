@@ -11,19 +11,23 @@ import (
 // schema if missing, builds the in-memory cache, and invokes fn. The lock is
 // released on return.
 //
-// If MUNDANE_LOCK_FD is set in the environment, Run adopts the parent's lock
-// instead of acquiring its own (used by the CLI's __step/__nap subcommands).
+// Run always acquires its own lock. (The CLI's __step/__nap subcommands use
+// RunAdoptCLI to adopt a parent-held lock instead.)
 //
 // Returns *LockedError on contention, *SchemaError on version mismatch, and
 // whatever fn returns otherwise.
 func Run(path string, fn func(*Ctx) error) error {
-	return run(path, false, fn)
+	return run(path, false, false, fn)
 }
 
-func run(path string, skipBootstrap bool, fn func(*Ctx) error) error {
+func run(path string, adoptLock, skipBootstrap bool, fn func(*Ctx) error) error {
 	var lock *FileLock
 	var err error
-	if fd := LockFDFromEnv(); fd >= 0 {
+	if adoptLock {
+		fd := LockFDFromEnv()
+		if fd < 0 {
+			return fmt.Errorf("adopt lock: MUNDANE_LOCK_FD not set")
+		}
 		lock = AdoptLockFromFD(fd)
 	} else {
 		lock, err = AcquireLock(path)
@@ -32,6 +36,7 @@ func run(path string, skipBootstrap bool, fn func(*Ctx) error) error {
 		}
 		defer lock.Release()
 	}
+	_ = lock
 
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -53,8 +58,8 @@ func run(path string, skipBootstrap bool, fn func(*Ctx) error) error {
 	return fn(ctx)
 }
 
-// runAdopt is the CLI-only variant that always adopts the parent lock and
-// skips bootstrap (parent already did it).
+// RunAdoptCLI is the CLI-only variant that adopts the parent lock from
+// MUNDANE_LOCK_FD and skips bootstrap (parent already did it).
 func RunAdoptCLI(path string, fn func(*Ctx) error) error {
-	return run(path, true, fn)
+	return run(path, true, true, fn)
 }

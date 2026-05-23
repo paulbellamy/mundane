@@ -106,6 +106,10 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 	value, err := fn()
 	if err != nil {
 		_ = commitFailed(ctx.db, name, err.Error())
+		if r, ok := ctx.cache[name]; ok {
+			r.Status = StatusFailed
+			r.Err = err.Error()
+		}
 		return zero, &StepFailedError{Name: name, Err: err}
 	}
 	text, err := CheckJSONRoundtrip(value)
@@ -116,7 +120,13 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 	if err := commitDone(ctx.db, ctx.cache, name, EncJSON, []byte(text)); err != nil {
 		return zero, err
 	}
-	return value, nil
+	// Return the round-tripped value (decoded into T) so the first run and a
+	// later cache hit yield identical values, even for `any`-typed results.
+	var out T
+	if err := jsonUnmarshal([]byte(text), &out); err != nil {
+		return zero, fmt.Errorf("decode step %q result: %w", name, err)
+	}
+	return out, nil
 }
 
 // Sleep pauses the workflow until `duration` has elapsed since the first time
@@ -231,12 +241,14 @@ func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding s
 		// for a 'done' row). Reset it to pending so the on-disk state reflects
 		// the retry rather than a stale failure (SPEC §2).
 		if _, err := db.Exec(
-			"UPDATE mundane_steps SET status='pending', result=NULL, error=NULL, finished_at=NULL WHERE name=?",
-			name,
+			"UPDATE mundane_steps SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL WHERE name=?",
+			kind, encoding, name,
 		); err != nil {
 			return fmt.Errorf("reset pending: %w", err)
 		}
 		existing.Status = StatusPending
+		existing.Kind = kind
+		existing.Encoding = encoding
 		existing.Result = nil
 		existing.Err = ""
 		return nil

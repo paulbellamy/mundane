@@ -188,6 +188,30 @@ class FailedStep(unittest.TestCase):
             self.assertEqual(r, 7)
             self.assertEqual(calls, ["s"])
 
+    def test_failed_row_reset_to_pending_during_rerun(self):
+        with TempDB() as path:
+            def boom():
+                raise RuntimeError("boom")
+
+            with self.assertRaises(mundane.StepFailedError):
+                mundane.run(path, lambda ctx: ctx.step("s", boom))
+
+            # While the re-run body executes, the row must read 'pending' with
+            # the stale error cleared (the reset committed before fn runs).
+            seen = {}
+
+            def observe():
+                conn = sqlite3.connect(path)
+                seen["status"], seen["error"] = conn.execute(
+                    "SELECT status, error FROM mundane_steps WHERE name='s'"
+                ).fetchone()
+                conn.close()
+                return 7
+
+            mundane.run(path, lambda ctx: ctx.step("s", observe))
+            self.assertEqual(seen["status"], "pending")
+            self.assertIsNone(seen["error"])
+
 
 class Async(unittest.TestCase):
     def test_arun_astep_asleep(self):

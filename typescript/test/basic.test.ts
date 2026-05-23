@@ -232,6 +232,38 @@ test("failed step re-runs on next invocation", async () => {
   }
 });
 
+test("failed row is reset to pending during re-run", async () => {
+  const { path, cleanup } = newDb();
+  try {
+    await assert.rejects(
+      run(path, async (ctx: any) => {
+        await ctx.step("s", async () => {
+          throw new Error("boom");
+        });
+      }),
+    );
+    let midStatus = "";
+    let midError: string | null = "stale";
+    await run(path, async (ctx: any) =>
+      ctx.step("s", async () => {
+        const db = new Database(path, { readonly: true });
+        const row = db.prepare("SELECT status, error FROM mundane_steps WHERE name='s'").get() as {
+          status: string;
+          error: string | null;
+        };
+        db.close();
+        midStatus = row.status;
+        midError = row.error;
+        return 7;
+      }),
+    );
+    assert.equal(midStatus, "pending");
+    assert.equal(midError, null);
+  } finally {
+    cleanup();
+  }
+});
+
 test("pending step re-runs on resume", async () => {
   const { path, cleanup } = newDb();
   try {
