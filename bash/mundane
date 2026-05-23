@@ -1,0 +1,438 @@
+#!/bin/sh
+# mundane v1 — tiny durable execution in POSIX sh.
+#
+# Usage:
+#   mundane run <task.db> -- <command> [args...]
+#   mundane status <task.db>
+#   mundane steps  <task.db>
+#   mundane get    <task.db> <name>
+#
+# When invoked as `run`, defines two shell functions for the workflow body:
+#   step [--b64] NAME -- CMD [ARGS...]
+#   nap NAME DURATION    (e.g. 30s, 5m, 2h)
+#
+# Hard deps: sqlite3, flock, base64, uuidgen-or-/proc/sys/kernel/random/uuid.
+
+set -u
+
+# ----- helpers ------------------------------------------------------------
+
+_mundane_die() {
+    printf 'mundane: %s\n' "$1" >&2
+    exit "${2:-1}"
+}
+
+_mundane_now_iso() {
+    # ISO-8601 UTC, millisecond precision when possible.
+    date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null \
+        || date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+_mundane_now_ms() {
+    # Milliseconds since epoch.
+    _ms=$(date -u +%s%3N 2>/dev/null) || {
+        _ms=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null)
+    }
+    [ -n "$_ms" ] || _mundane_die "cannot compute current time in milliseconds" 1
+    printf '%s' "$_ms"
+}
+
+_mundane_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    elif [ -r /proc/sys/kernel/random/uuid ]; then
+        cat /proc/sys/kernel/random/uuid
+    else
+        python3 -c 'import uuid; print(uuid.uuid4())'
+    fi
+}
+
+# Escape a string for use inside SQL single quotes.
+_mundane_sql_escape() {
+    # double every single quote
+    printf '%s' "$1" | sed "s/'/''/g"
+}
+
+# Run SQL against the open DB and emit the result (no quoting expected here).
+_mundane_sql() {
+    sqlite3 -bail -batch -separator "$(printf '\t')" "$_mundane_db" "$1"
+}
+
+# Validate a step name against ^[A-Za-z0-9][A-Za-z0-9._-]*$.
+_mundane_validate_name() {
+    case "$1" in
+        '') _mundane_die "empty step name" 2 ;;
+    esac
+    # Strip leading alnum; the remainder must be empty or pass the second test.
+    case "$1" in
+        [A-Za-z0-9]*) ;;
+        *) _mundane_die "invalid step name (must start with alphanumeric): $1" 2 ;;
+    esac
+    # Reject any character outside the allowed set.
+    case "$1" in
+        *[!A-Za-z0-9._-]*)
+            _mundane_die "invalid step name (allowed chars: alnum . _ -): $1" 2 ;;
+    esac
+}
+
+# ----- schema bootstrap ---------------------------------------------------
+
+_mundane_bootstrap() {
+    # Pre-check: if meta exists with wrong schema_version, fail before
+    # CREATE INDEX (which references the v1 columns).
+    _existing=$(sqlite3 "$_mundane_db" \
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='mundane_meta'")
+    if [ -n "$_existing" ]; then
+        _ver=$(sqlite3 "$_mundane_db" \
+            "SELECT value FROM mundane_meta WHERE key='schema_version'")
+        if [ -n "$_ver" ] && [ "$_ver" != "1" ]; then
+            _mundane_die "schema_version is $_ver, expected 1" 2
+        fi
+    fi
+
+    _uuid_val=$(_mundane_uuid)
+    _iso=$(_mundane_now_iso)
+    sqlite3 -bail "$_mundane_db" >/dev/null <<EOF
+PRAGMA journal_mode = DELETE;
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS mundane_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mundane_steps (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  encoding     TEXT NOT NULL,
+  result       BLOB,
+  status       TEXT NOT NULL,
+  error        TEXT,
+  started_at   TEXT NOT NULL,
+  finished_at  TEXT,
+  UNIQUE(name)
+);
+CREATE INDEX IF NOT EXISTS mundane_steps_status ON mundane_steps(status);
+INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', '$_uuid_val');
+INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', '$_iso');
+COMMIT;
+EOF
+
+    # Re-verify after bootstrap.
+    _ver=$(sqlite3 "$_mundane_db" \
+        "SELECT value FROM mundane_meta WHERE key='schema_version'")
+    [ "$_ver" = "1" ] || _mundane_die "schema_version is $_ver, expected 1 (post-bootstrap)" 2
+}
+
+# ----- step / nap (injected into the workflow body) -----------------------
+
+# Counter map for "#N" disambiguation. Stored as a single newline-delimited
+# string of "name=count" pairs since POSIX sh has no associative arrays.
+_mundane_disambig=""
+
+# Resolve a base name to its disambiguated form.
+_mundane_next_name() {
+    _base="$1"
+    _cur=$(printf '%s\n' "$_mundane_disambig" | awk -F= -v n="$_base" \
+        '$1==n { print $2; found=1; exit } END { if (!found) print 0 }')
+    _new=$((_cur + 1))
+    # Update the disambig table by appending/replacing
+    _mundane_disambig=$(printf '%s\n' "$_mundane_disambig" \
+        | awk -F= -v n="$_base" -v v="$_new" \
+            'BEGIN { OFS="=" }
+             $1==n { print n, v; found=1; next }
+             NF>0 { print }
+             END { if (!found) print n "=" v }')
+    if [ "$_new" = "1" ]; then
+        printf '%s' "$_base"
+    else
+        printf '%s#%s' "$_base" "$_new"
+    fi
+}
+
+# Look up the cached row for a given resolved name. Outputs:
+#   <status>\t<encoding>\t<result-as-text>
+# When encoding='json', the result column holds JSON text; we json_extract
+# at the SQL layer so the bash side sees the decoded primitive (string,
+# number, bool->'true'/'false'/null) or the re-serialised JSON for
+# objects/arrays. This makes bash interop with TS/Python json results.
+_mundane_lookup() {
+    _esc=$(_mundane_sql_escape "$1")
+    sqlite3 -bail -separator "$(printf '\t')" "$_mundane_db" \
+        "SELECT status, encoding,
+                CASE encoding
+                    WHEN 'json' THEN COALESCE(json_extract(result, '\$'), '')
+                    ELSE COALESCE(result, '')
+                END
+         FROM mundane_steps WHERE name = '$_esc'"
+}
+
+_mundane_insert_pending() {
+    _esc_name=$(_mundane_sql_escape "$1")
+    _kind="$2"
+    _enc="$3"
+    _iso=$(_mundane_now_iso)
+    sqlite3 -bail "$_mundane_db" \
+        "INSERT OR IGNORE INTO mundane_steps (name, kind, encoding, status, started_at) VALUES ('$_esc_name', '$_kind', '$_enc', 'pending', '$_iso')"
+}
+
+# Update a step to status='done' with the given encoding and result text.
+# We pipe the SQL via stdin to preserve any trailing newlines in the result
+# (which $(...) would otherwise strip).
+_mundane_update_done() {
+    _esc_name=$(_mundane_sql_escape "$1")
+    _enc="$2"
+    _iso=$(_mundane_now_iso)
+    # Escape result inline without losing trailing newlines:
+    # we write it to a temp file, then build the SQL.
+    _tmp_sql=$(mktemp)
+    {
+        printf "UPDATE mundane_steps SET status='done', encoding='%s', result='" "$_enc"
+        printf '%s' "$3" | sed "s/'/''/g"
+        printf "', finished_at='%s', error=NULL WHERE name='%s';\n" "$_iso" "$_esc_name"
+    } > "$_tmp_sql"
+    sqlite3 -bail "$_mundane_db" < "$_tmp_sql"
+    rm -f "$_tmp_sql"
+}
+
+_mundane_update_failed() {
+    _esc_name=$(_mundane_sql_escape "$1")
+    _esc_err=$(_mundane_sql_escape "$2")
+    _iso=$(_mundane_now_iso)
+    sqlite3 -bail "$_mundane_db" \
+        "UPDATE mundane_steps SET status='failed', error='$_esc_err', finished_at='$_iso' WHERE name='$_esc_name'"
+}
+
+# step [--b64] NAME -- CMD [ARGS...]
+step() {
+    _b64=0
+    if [ "${1:-}" = "--b64" ]; then
+        _b64=1
+        shift
+    fi
+    _name="${1:-}"
+    [ -n "$_name" ] || _mundane_die "step: missing name" 2
+    shift
+    [ "${1:-}" = "--" ] || _mundane_die "step: expected '--' after name" 2
+    shift
+    _mundane_validate_name "$_name"
+    _resolved=$(_mundane_next_name "$_name")
+
+    # Cache check.
+    _row=$(_mundane_lookup "$_resolved")
+    if [ -n "$_row" ]; then
+        _row_status=$(printf '%s' "$_row" | awk -F'\t' '{print $1}')
+        _row_enc=$(printf '%s' "$_row" | awk -F'\t' '{print $2}')
+        # The result text may contain tabs/newlines; rebuild it from field 3+
+        _row_text=$(printf '%s' "$_row" | awk -F'\t' '{ for (i=3; i<=NF; i++) { if (i>3) printf "\t"; printf "%s", $i } }')
+        if [ "$_row_status" = "done" ]; then
+            if [ "$_row_enc" = "b64" ]; then
+                printf '%s' "$_row_text" | base64 -d
+            else
+                printf '%s' "$_row_text"
+            fi
+            return 0
+        fi
+        # status=pending or failed: fall through and re-run the body.
+    else
+        _mundane_insert_pending "$_resolved" "step" "text"
+    fi
+
+    # Run the command. Capture stdout; stderr passes through live.
+    _tmp_out=$(mktemp)
+    _tmp_rc=$(mktemp)
+    # Run in a subshell so we can capture exit code without aborting on set -e.
+    ( "$@" > "$_tmp_out" 2>&3 ) 3>&2
+    _rc=$?
+    if [ "$_rc" != "0" ]; then
+        _err_msg="step '$_resolved' exited $_rc"
+        _mundane_update_failed "$_resolved" "$_err_msg"
+        rm -f "$_tmp_out" "$_tmp_rc"
+        printf 'mundane: %s\n' "$_err_msg" >&2
+        exit "$_rc"
+    fi
+
+    if [ "$_b64" = "1" ]; then
+        _enc="b64"
+        _stored=$(base64 < "$_tmp_out" | tr -d '\n')
+        _mundane_update_done "$_resolved" "$_enc" "$_stored"
+        printf '%s' "$_stored" | base64 -d
+    else
+        _enc="text"
+        _raw=$(cat "$_tmp_out"; printf x)  # preserve trailing newlines
+        _raw=${_raw%x}
+        _mundane_update_done "$_resolved" "$_enc" "$_raw"
+        printf '%s' "$_raw"
+    fi
+    rm -f "$_tmp_out" "$_tmp_rc"
+}
+
+# Parse a duration like "30s", "5m", "2h", "500ms", "1d" into milliseconds.
+_mundane_parse_duration_ms() {
+    _d="$1"
+    case "$_d" in
+        *ms) _n=${_d%ms}; _u=ms ;;
+        *s)  _n=${_d%s};  _u=s ;;
+        *m)  _n=${_d%m};  _u=m ;;
+        *h)  _n=${_d%h};  _u=h ;;
+        *d)  _n=${_d%d};  _u=d ;;
+        *) _mundane_die "invalid duration: $_d (expected e.g. 30s, 5m, 2h)" 2 ;;
+    esac
+    case "$_n" in
+        ''|*[!0-9.]*) _mundane_die "invalid duration magnitude: $_d" 2 ;;
+    esac
+    case "$_u" in
+        ms) _factor=1 ;;
+        s)  _factor=1000 ;;
+        m)  _factor=60000 ;;
+        h)  _factor=3600000 ;;
+        d)  _factor=86400000 ;;
+    esac
+    # Allow decimals via awk
+    printf '%s' "$_n $_factor" | awk '{ printf "%d", ($1*$2)+0.5 }'
+}
+
+# nap NAME DURATION
+nap() {
+    _name="${1:-}"
+    _dur="${2:-}"
+    if [ -z "$_name" ] || [ -z "$_dur" ]; then
+        _mundane_die "nap: usage: nap NAME DURATION" 2
+    fi
+    _mundane_validate_name "$_name"
+    _resolved=$(_mundane_next_name "$_name")
+    _ms=$(_mundane_parse_duration_ms "$_dur")
+
+    _row=$(_mundane_lookup "$_resolved")
+    if [ -n "$_row" ]; then
+        _row_status=$(printf '%s' "$_row" | awk -F'\t' '{print $1}')
+        _row_text=$(printf '%s' "$_row" | awk -F'\t' '{ for (i=3; i<=NF; i++) { if (i>3) printf "\t"; printf "%s", $i } }')
+        if [ "$_row_status" = "done" ]; then
+            _wake_at="$_row_text"
+        else
+            # pending: row exists but no wake_at recorded yet — recompute.
+            _now=$(_mundane_now_ms)
+            _wake_at=$((_now + _ms))
+            _mundane_update_done "$_resolved" "epoch" "$_wake_at"
+        fi
+    else
+        _now=$(_mundane_now_ms)
+        _wake_at=$((_now + _ms))
+        _mundane_insert_pending "$_resolved" "sleep" "epoch"
+        _mundane_update_done "$_resolved" "epoch" "$_wake_at"
+    fi
+
+    _now=$(_mundane_now_ms)
+    _remaining_ms=$((_wake_at - _now))
+    if [ "$_remaining_ms" -gt 0 ]; then
+        # sleep takes seconds with decimal fraction on most systems.
+        _secs=$(printf '%s' "$_remaining_ms" | awk '{ printf "%.3f", $1/1000 }')
+        sleep "$_secs"
+    fi
+}
+
+# ----- subcommand: run ----------------------------------------------------
+
+_mundane_subcmd_run() {
+    [ "$#" -ge 2 ] || _mundane_die "usage: mundane run <task.db> -- <command> [args...]" 2
+    _mundane_db="$1"
+    shift
+    [ "$1" = "--" ] || _mundane_die "expected '--' before command" 2
+    shift
+    [ "$#" -ge 1 ] || _mundane_die "missing command after '--'" 2
+
+    # Acquire flock on the DB file via fd 9. The lock auto-releases when the
+    # script exits (kernel drops it). Touch the file if missing so flock has
+    # something to open; never truncate an existing one.
+    if [ ! -e "$_mundane_db" ]; then
+        : >> "$_mundane_db" 2>/dev/null \
+            || _mundane_die "cannot create $_mundane_db" 1
+    fi
+    exec 9<>"$_mundane_db"
+    flock -nx 9 || exit 75
+
+    _mundane_bootstrap
+
+    # Run the user's command. step and nap are defined in this shell.
+    "$@"
+    _rc=$?
+    exit "$_rc"
+}
+
+# ----- inspection subcommands --------------------------------------------
+
+_mundane_subcmd_status() {
+    [ "$#" = "1" ] || _mundane_die "usage: mundane status <task.db>" 2
+    _mundane_db="$1"
+    _ver=$(sqlite3 "$_mundane_db" \
+        "SELECT value FROM mundane_meta WHERE key='schema_version'" 2>/dev/null)
+    [ "$_ver" = "1" ] || _mundane_die "unsupported schema_version: $_ver" 2
+    sqlite3 -bail "$_mundane_db" <<'EOF'
+.mode list
+.separator '  '
+SELECT 'task_id=' || (SELECT value FROM mundane_meta WHERE key='task_id') ||
+       '  steps=' || (SELECT COUNT(*) FROM mundane_steps) ||
+       '  done=' || (SELECT COUNT(*) FROM mundane_steps WHERE status='done') ||
+       '  pending=' || (SELECT COUNT(*) FROM mundane_steps WHERE status='pending') ||
+       '  failed=' || (SELECT COUNT(*) FROM mundane_steps WHERE status='failed');
+EOF
+}
+
+_mundane_subcmd_steps() {
+    [ "$#" = "1" ] || _mundane_die "usage: mundane steps <task.db>" 2
+    _mundane_db="$1"
+    _ver=$(sqlite3 "$_mundane_db" \
+        "SELECT value FROM mundane_meta WHERE key='schema_version'" 2>/dev/null)
+    [ "$_ver" = "1" ] || _mundane_die "unsupported schema_version: $_ver" 2
+    sqlite3 -bail -separator '  ' "$_mundane_db" \
+        "SELECT id, name, kind, status, started_at, COALESCE(finished_at, '') FROM mundane_steps ORDER BY id"
+}
+
+_mundane_subcmd_get() {
+    [ "$#" = "2" ] || _mundane_die "usage: mundane get <task.db> <name>" 2
+    _mundane_db="$1"
+    _name="$2"
+    _esc=$(_mundane_sql_escape "$_name")
+    _row=$(sqlite3 -bail -separator "$(printf '\t')" "$_mundane_db" \
+        "SELECT status, encoding,
+                CASE encoding
+                    WHEN 'json' THEN COALESCE(json_extract(result, '\$'), '')
+                    ELSE COALESCE(result, '')
+                END
+         FROM mundane_steps WHERE name='$_esc'")
+    [ -n "$_row" ] || _mundane_die "no step named: $_name" 1
+    _row_status=$(printf '%s' "$_row" | awk -F'\t' '{print $1}')
+    _row_enc=$(printf '%s' "$_row" | awk -F'\t' '{print $2}')
+    _row_text=$(printf '%s' "$_row" | awk -F'\t' '{ for (i=3; i<=NF; i++) { if (i>3) printf "\t"; printf "%s", $i } }')
+    [ "$_row_status" = "done" ] || _mundane_die "step '$_name' is $_row_status, not done" 1
+    if [ "$_row_enc" = "b64" ]; then
+        printf '%s' "$_row_text" | base64 -d
+    else
+        printf '%s' "$_row_text"
+    fi
+}
+
+# ----- dispatch -----------------------------------------------------------
+
+_mundane_usage() {
+    cat >&2 <<'EOF'
+usage: mundane <subcommand> [args]
+  run    <task.db> -- <command> [args...]
+  status <task.db>
+  steps  <task.db>
+  get    <task.db> <name>
+EOF
+    exit 2
+}
+
+[ "$#" -ge 1 ] || _mundane_usage
+_mundane_cmd="$1"
+shift
+case "$_mundane_cmd" in
+    run)    _mundane_subcmd_run "$@" ;;
+    status) _mundane_subcmd_status "$@" ;;
+    steps)  _mundane_subcmd_steps "$@" ;;
+    get)    _mundane_subcmd_get "$@" ;;
+    -h|--help|help) _mundane_usage ;;
+    *) _mundane_die "unknown subcommand: $_mundane_cmd" 2 ;;
+esac

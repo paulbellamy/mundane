@@ -1,0 +1,22 @@
+# Build artefacts
+typescript/node_modules/
+typescript/dist/
+typescript/package-lock.json
+
+# Python
+**/__pycache__/
+*.pyc
+python/build/
+python/dist/
+python/*.egg-info/
+
+# Test outputs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Editors
+.vscode/
+.idea/
+*.swp
