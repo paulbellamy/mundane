@@ -151,7 +151,20 @@ class TaskState {
 
   ensurePendingRow(name: string, kind: "step" | "sleep", encoding: StepRow["encoding"]): StepRow {
     const existing = this.cache.get(name);
-    if (existing) return existing;
+    if (existing) {
+      // Re-running a leftover pending/failed row (never 'done' on this path):
+      // reset it to pending so the on-disk state reflects the retry (SPEC §2).
+      this.db
+        .prepare(
+          "UPDATE mundane_steps SET status='pending', result=NULL, error=NULL, finished_at=NULL " +
+            "WHERE name=?",
+        )
+        .run(name);
+      existing.status = "pending";
+      existing.result = null;
+      existing.error = null;
+      return existing;
+    }
     const now = new Date().toISOString();
     this.db
       .prepare(

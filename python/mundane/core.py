@@ -153,9 +153,23 @@ class _Task:
         self.seen.add(name)
 
     def _ensure_pending_row(self, name: str, kind: str, encoding: str) -> _StepRow:
-        """Insert a pending row if not present; return the (possibly fresh) row."""
+        """Insert a pending row if not present; return the (possibly fresh) row.
+
+        A leftover pending/failed row (never 'done' on this path) is reset to
+        pending so the on-disk state reflects the retry, not a stale failure.
+        """
         existing = self.cache.get(name)
         if existing is not None:
+            self.conn.execute(
+                "UPDATE mundane_steps "
+                "SET status='pending', result=NULL, error=NULL, finished_at=NULL "
+                "WHERE name=?",
+                (name,),
+            )
+            self.conn.commit()
+            existing.status = "pending"
+            existing.result = None
+            existing.error = None
             return existing
         now = _iso_now()
         self.conn.execute(

@@ -81,6 +81,38 @@ func TestFailedStepReruns(t *testing.T) {
 	}
 }
 
+func TestFailedStepResetToPendingDuringRerun(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.db")
+
+	if err := Run(path, func(ctx *Ctx) error {
+		_, err := Step(ctx, "s", func() (int, error) { return 0, fmt.Errorf("boom") })
+		return err
+	}); err == nil {
+		t.Fatal("expected first run to fail")
+	}
+
+	// While the re-run body executes, the row must read 'pending', not the
+	// stale 'failed' left by the previous attempt.
+	var midStatus, midErr string
+	if err := Run(path, func(ctx *Ctx) error {
+		_, err := Step(ctx, "s", func() (int, error) {
+			row := ctx.db.QueryRow("SELECT status, COALESCE(error, '') FROM mundane_steps WHERE name='s'")
+			_ = row.Scan(&midStatus, &midErr)
+			return 1, nil
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	if midStatus != StatusPending {
+		t.Errorf("status during re-run = %q, want %q", midStatus, StatusPending)
+	}
+	if midErr != "" {
+		t.Errorf("error not cleared during re-run: %q", midErr)
+	}
+}
+
 func TestPendingStepReruns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "task.db")

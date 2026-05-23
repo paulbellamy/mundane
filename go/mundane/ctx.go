@@ -226,7 +226,19 @@ func parseEpoch(raw []byte) (int64, error) {
 }
 
 func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding string) error {
-	if _, ok := cache[name]; ok {
+	if existing, ok := cache[name]; ok {
+		// Re-running a leftover pending/failed row (this path is never reached
+		// for a 'done' row). Reset it to pending so the on-disk state reflects
+		// the retry rather than a stale failure (SPEC §2).
+		if _, err := db.Exec(
+			"UPDATE mundane_steps SET status='pending', result=NULL, error=NULL, finished_at=NULL WHERE name=?",
+			name,
+		); err != nil {
+			return fmt.Errorf("reset pending: %w", err)
+		}
+		existing.Status = StatusPending
+		existing.Result = nil
+		existing.Err = ""
 		return nil
 	}
 	now := IsoNow()
