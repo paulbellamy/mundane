@@ -44,8 +44,11 @@ scheduler (bring your own cron/supervisor). See `SPEC.md` for the full contract.
 - **Go:** `go get github.com/paulbellamy/mundane/go` (pure-Go SQLite, no cgo).
 - **Python:** `pip install mundane` (stdlib only, Python 3.8+).
 - **TypeScript:** `npm install @mundane/core` (Node 18+; pulls in `better-sqlite3`, `fs-ext`).
-- **Shell:** needs the `mundane` CLI binary on `PATH`. Build it from this repo
-  with `cd go && go build -o mundane ./cmd/mundane` (or `go install
+- **Shell:** needs the `mundane` CLI binary on `PATH`. Easiest:
+  `curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh`
+  (detects OS/arch, downloads a release binary; `MUNDANE_VERSION` /
+  `MUNDANE_INSTALL_DIR` override it). Or build from source:
+  `cd go && go build -o mundane ./cmd/mundane` (or `go install
   github.com/paulbellamy/mundane/go/cmd/mundane@latest`).
 
 ## How to use it (per runtime)

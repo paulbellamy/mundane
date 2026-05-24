@@ -21,7 +21,7 @@ build-ts:
 
 lint-sh:
 	@echo "=== shellcheck ==="
-	@shellcheck -s sh bash/test/run.sh examples/smoke.sh examples/docker-volume/workflow.sh
+	@shellcheck -s sh install.sh bash/test/run.sh examples/smoke.sh examples/docker-volume/workflow.sh
 
 lint-python:
 	@echo "=== ruff ==="
