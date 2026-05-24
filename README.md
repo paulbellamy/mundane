@@ -21,6 +21,20 @@ same on-disk format:
 
 See [`SPEC.md`](./SPEC.md) for the contract.
 
+## Install
+
+The CLI (shell runtime) — download a release binary, OS/arch auto-detected:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh
+```
+
+Override with `MUNDANE_VERSION` (e.g. `v2.0.0`) or `MUNDANE_INSTALL_DIR`. Or
+build from source: `cd go && go build -o mundane ./cmd/mundane`.
+
+The SDKs: `go get github.com/paulbellamy/mundane/go`, `pip install mundane`,
+`npm install @mundane/core`.
+
 ## Quick start
 
 ### Shell
@@ -30,7 +44,7 @@ See [`SPEC.md`](./SPEC.md) for the contract.
 eval "$(mundane init task.db)"      # flock, bootstrap, define step/nap
 step greeting -- echo "hello world"
 nap   cool 100ms
-step --b64 binary -- ./produce-bytes
+step binary -- ./produce-bytes      # stdout cached raw (binary-safe)
 ```
 
 `mundane status task.db` / `steps` / `get task.db greeting` for inspection.

@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck -s sh bash/test/run.sh examples/smoke.sh examples/docker-volume/workflow.sh
+      - run: shellcheck -s sh install.sh bash/test/run.sh examples/smoke.sh examples/docker-volume/workflow.sh
 
   lint-python:
     name: lint (ruff)
