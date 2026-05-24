@@ -30,7 +30,7 @@ See [`SPEC.md`](./SPEC.md) for the contract.
 eval "$(mundane init task.db)"      # flock, bootstrap, define step/nap
 step greeting -- echo "hello world"
 nap   cool 100ms
-step --b64 binary -- ./produce-bytes
+step binary -- ./produce-bytes      # stdout cached raw (binary-safe)
 ```
 
 `mundane status task.db` / `steps` / `get task.db greeting` for inspection.
