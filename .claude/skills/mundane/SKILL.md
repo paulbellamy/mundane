@@ -39,6 +39,15 @@ scheduler (bring your own cron/supervisor). See `SPEC.md` for the full contract.
   `wake_at = now + duration`; a resume after a crash sleeps only the *remaining*
   time. Durations are strings like `"30s"`, `"5m"`, `"2h"` (or ms as a number).
 
+## Install
+
+- **Go:** `go get github.com/paulbellamy/mundane/go` (pure-Go SQLite, no cgo).
+- **Python:** `pip install mundane` (stdlib only, Python 3.8+).
+- **TypeScript:** `npm install @mundane/core` (Node 18+; pulls in `better-sqlite3`, `fs-ext`).
+- **Shell:** needs the `mundane` CLI binary on `PATH`. Build it from this repo
+  with `cd go && go build -o mundane ./cmd/mundane` (or `go install
+  github.com/paulbellamy/mundane/go/cmd/mundane@latest`).
+
 ## How to use it (per runtime)
 
 ### Shell
