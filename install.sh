@@ -5,7 +5,7 @@
 #
 # Detects OS (linux/darwin) and arch (amd64/arm64) and drops the `mundane`
 # binary onto your PATH. Overridable via env:
-#   MUNDANE_VERSION      release tag to install (default: latest, e.g. v2.0.0)
+#   MUNDANE_VERSION      release tag to install (default: latest, e.g. v0.0.1)
 #   MUNDANE_INSTALL_DIR  where to install (default: /usr/local/bin, else
 #                        ~/.local/bin)
 set -eu

@@ -7,12 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { openDb } from "../src/db";
-import {
-  MundaneDuplicateStepError,
-  MundaneLockedError,
-  MundaneSerializationError,
-  run,
-} from "../src/index";
+import { DuplicateStepError, LockedError, run, SerializationError } from "../src/index";
 
 // Inspection lives in the CLI now; tests read on-disk state directly.
 async function readSteps(
@@ -125,7 +120,7 @@ test("invalid step name is rejected", async () => {
   }
 });
 
-test("duplicate step name raises MundaneDuplicateStepError", async () => {
+test("duplicate step name raises DuplicateStepError", async () => {
   const { path, cleanup } = newDb();
   try {
     await assert.rejects(
@@ -133,7 +128,7 @@ test("duplicate step name raises MundaneDuplicateStepError", async () => {
         await ctx.step("x", async () => 1);
         await ctx.step("x", async () => 2);
       }),
-      (e: any) => e instanceof MundaneDuplicateStepError && e.stepName === "x",
+      (e: any) => e instanceof DuplicateStepError && e.stepName === "x",
     );
     // First step still committed before the dup raised.
     const names = (await readSteps(path)).map((s) => s.name);
@@ -184,7 +179,7 @@ test("sequential runs on the same file do not spuriously lock", async () => {
   const { path, cleanup } = newDb();
   try {
     // Back-to-back runs: if release() resolved before the helper actually
-    // dropped the flock, a later run would throw MundaneLockedError.
+    // dropped the flock, a later run would throw LockedError.
     for (let i = 0; i < 5; i++) {
       await run(path, async (ctx: any) => ctx.step(`s${i}`, async () => i));
     }
@@ -195,21 +190,21 @@ test("sequential runs on the same file do not spuriously lock", async () => {
   }
 });
 
-test("non-JSON value raises MundaneSerializationError", async () => {
+test("non-JSON value raises SerializationError", async () => {
   const { path, cleanup } = newDb();
   try {
     await assert.rejects(
       run(path, async (ctx: any) => {
         await ctx.step("a", async () => new Date());
       }),
-      (e: any) => e instanceof MundaneSerializationError,
+      (e: any) => e instanceof SerializationError,
     );
   } finally {
     cleanup();
   }
 });
 
-test("locked task throws MundaneLockedError", async () => {
+test("locked task throws LockedError", async () => {
   const { path, cleanup } = newDb();
   try {
     let unblock!: () => void;
@@ -228,7 +223,7 @@ test("locked task throws MundaneLockedError", async () => {
 
     await assert.rejects(
       run(path, async () => {}),
-      (e: any) => e instanceof MundaneLockedError,
+      (e: any) => e instanceof LockedError,
     );
 
     unblock();

@@ -13,5 +13,9 @@ license-files = ["LICENSE"]
 authors = [{ name = "Paul Bellamy" }]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/paulbellamy/mundane"
+Repository = "https://github.com/paulbellamy/mundane"
+
 [tool.setuptools.packages.find]
 include = ["mundane*"]

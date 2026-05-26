@@ -1,6 +1,6 @@
 /**
  * Step-name validation. Names must match /^[A-Za-z0-9][A-Za-z0-9._-]*$/.
- * Duplicate names within one task body raise MundaneDuplicateStepError;
+ * Duplicate names within one task body raise DuplicateStepError;
  * see ../src/index.ts.
  */
 

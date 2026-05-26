@@ -31,7 +31,7 @@ The CLI (shell runtime) - download a release binary, OS/arch auto-detected:
 curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh
 ```
 
-Override with `MUNDANE_VERSION` (e.g. `v2.0.0`) or `MUNDANE_INSTALL_DIR`. Or
+Override with `MUNDANE_VERSION` (e.g. `v0.0.1`) or `MUNDANE_INSTALL_DIR`. Or
 build from source: `cd go && go build -o mundane ./cmd/mundane`.
 
 

@@ -15,7 +15,7 @@
 
 import { constants, close as fsClose, open as fsOpen } from "node:fs";
 import { flock } from "fs-ext";
-import { MundaneLockedError } from "./errors";
+import { LockedError } from "./errors";
 
 export interface AcquiredLock {
   release(): Promise<void>;
@@ -54,7 +54,7 @@ export async function acquireLock(path: string): Promise<AcquiredLock> {
     await closeFd(fd);
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "EWOULDBLOCK" || code === "EAGAIN") {
-      throw new MundaneLockedError(`${path}: locked by another process`);
+      throw new LockedError(`${path}: locked by another process`);
     }
     throw e;
   }
