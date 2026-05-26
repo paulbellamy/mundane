@@ -1,10 +1,10 @@
 # mundane
 
 A tiny durable-execution library. One workflow run is one SQLite file.
-Crash, re-invoke, resume. No daemon, no broker, no scheduler — bring
+Crash, re-invoke, resume. No daemon, no broker, no scheduler - bring
 your own cron.
 
-Inspired by [Absurd](https://github.com/earendil-works/absurd) — same
+Inspired by [Absurd](https://github.com/earendil-works/absurd) - same
 "durable workflows are absurdly simple" thesis, swapping Postgres for
 SQLite so a workflow is one portable file you can `cp`, `mv`, or ship in
 a tarball.
@@ -21,9 +21,11 @@ same on-disk format:
 
 See [`SPEC.md`](./SPEC.md) for the contract.
 
-## Install
+## Quick start
 
-The CLI (shell runtime) — download a release binary, OS/arch auto-detected:
+### Shell
+
+The CLI (shell runtime) - download a release binary, OS/arch auto-detected:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh
@@ -32,12 +34,6 @@ curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh
 Override with `MUNDANE_VERSION` (e.g. `v2.0.0`) or `MUNDANE_INSTALL_DIR`. Or
 build from source: `cd go && go build -o mundane ./cmd/mundane`.
 
-The SDKs: `go get github.com/paulbellamy/mundane/go`, `pip install mundane`,
-`npm install @mundane/core`.
-
-## Quick start
-
-### Shell
 
 ```sh
 #!/bin/sh
@@ -50,6 +46,8 @@ step binary -- ./produce-bytes      # stdout cached raw (binary-safe)
 `mundane status task.db` / `steps` / `get task.db greeting` for inspection.
 
 ### Go
+
+`go get github.com/paulbellamy/mundane/go`
 
 ```go
 import "github.com/paulbellamy/mundane/go/mundane"
@@ -65,6 +63,8 @@ err := mundane.Run("task.db", func(ctx *mundane.Ctx) error {
 
 ### Python
 
+`pip install mundane`
+
 ```python
 import mundane
 
@@ -78,6 +78,8 @@ mundane.run("task.db", workflow)
 
 ### TypeScript
 
+`npm install @mundane/core`.
+
 ```ts
 import { run } from "@mundane/core";
 
@@ -90,15 +92,15 @@ await run("task.db", async (ctx) => {
 
 ## Examples
 
-Runnable, offline workflows in [`examples/`](./examples) — the durability
+Runnable, offline workflows in [`examples/`](./examples) - the durability
 story end to end (run it, kill it partway, re-invoke, watch it resume):
 
-- [`examples/etl-typescript`](./examples/etl-typescript) — crash-resumable ETL.
-- [`examples/ai-pipeline-python`](./examples/ai-pipeline-python) — cache LLM
+- [`examples/etl-typescript`](./examples/etl-typescript) - crash-resumable ETL.
+- [`examples/ai-pipeline-python`](./examples/ai-pipeline-python) - cache LLM
   calls so a resume never re-pays for completed ones.
-- [`examples/onboarding-go`](./examples/onboarding-go) — a `nap`-spaced drip
+- [`examples/onboarding-go`](./examples/onboarding-go) - a `nap`-spaced drip
   campaign that resumes mid-wait without re-sending.
-- [`examples/docker-volume`](./examples/docker-volume) — task file on a Docker
+- [`examples/docker-volume`](./examples/docker-volume) - task file on a Docker
   volume that outlives the container.
 
 ## Running the tests
