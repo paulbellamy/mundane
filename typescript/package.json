@@ -13,12 +13,11 @@
     "test": "node --test dist/test/"
   },
   "dependencies": {
-    "better-sqlite3": "^11.3.0",
-    "fs-ext": "^2.1.1"
+    "fs-ext": "^2.1.1",
+    "sqlite3": "^6.0.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@types/better-sqlite3": "^7.6.0",
     "@types/fs-ext": "^2.0.3",
     "@types/node": "^20.0.0",
     "typescript": "^5.4.0"

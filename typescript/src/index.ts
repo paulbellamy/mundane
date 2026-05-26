@@ -9,7 +9,7 @@
  * See ../../../SPEC.md (project root) for the full contract.
  */
 
-import Database from "better-sqlite3";
+import { type Db, openDb } from "./db";
 import { parseDurationMs } from "./duration";
 import {
   MundaneDuplicateStepError,
@@ -109,7 +109,7 @@ function deepDiff(a: unknown, b: unknown, path: string): string | null {
 
 function decodeResult(row: StepRow): unknown {
   if (row.result === null) return null;
-  // better-sqlite3 returns BLOB as Buffer, TEXT as string.
+  // node-sqlite3 returns BLOB as Buffer, TEXT as string.
   switch (row.encoding) {
     case "json": {
       const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
@@ -123,13 +123,15 @@ function decodeResult(row: StepRow): unknown {
 }
 
 class TaskState {
-  readonly db: Database.Database;
   readonly cache = new Map<string, StepRow>();
   readonly seen = new Set<string>();
 
-  constructor(db: Database.Database) {
-    this.db = db;
-    this.loadCache();
+  private constructor(readonly db: Db) {}
+
+  static async create(db: Db): Promise<TaskState> {
+    const task = new TaskState(db);
+    await task.loadCache();
+    return task;
   }
 
   checkSeen(name: string): void {
@@ -139,27 +141,27 @@ class TaskState {
     this.seen.add(name);
   }
 
-  private loadCache(): void {
-    const rows = this.db
-      .prepare(
-        "SELECT id, name, kind, encoding, result, status, error " +
-          "FROM mundane_steps ORDER BY id",
-      )
-      .all() as StepRow[];
+  private async loadCache(): Promise<void> {
+    const rows = await this.db.all<StepRow>(
+      "SELECT id, name, kind, encoding, result, status, error FROM mundane_steps ORDER BY id",
+    );
     for (const row of rows) this.cache.set(row.name, row);
   }
 
-  ensurePendingRow(name: string, kind: "step" | "sleep", encoding: StepRow["encoding"]): StepRow {
+  async ensurePendingRow(
+    name: string,
+    kind: "step" | "sleep",
+    encoding: StepRow["encoding"],
+  ): Promise<StepRow> {
     const existing = this.cache.get(name);
     if (existing) {
       // Re-running a leftover pending/failed row (never 'done' on this path):
       // reset it to pending so the on-disk state reflects the retry (SPEC §2).
-      this.db
-        .prepare(
-          "UPDATE mundane_steps SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL " +
-            "WHERE name=?",
-        )
-        .run(kind, encoding, name);
+      await this.db.run(
+        "UPDATE mundane_steps SET kind=?, encoding=?, status='pending', result=NULL, error=NULL, finished_at=NULL " +
+          "WHERE name=?",
+        [kind, encoding, name],
+      );
       existing.kind = kind;
       existing.encoding = encoding;
       existing.status = "pending";
@@ -168,41 +170,42 @@ class TaskState {
       return existing;
     }
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        "INSERT INTO mundane_steps (name, kind, encoding, result, status, started_at) " +
-          "VALUES (?, ?, ?, NULL, 'pending', ?)",
-      )
-      .run(name, kind, encoding, now);
-    const row = this.db
-      .prepare(
-        "SELECT id, name, kind, encoding, result, status, error " +
-          "FROM mundane_steps WHERE name = ?",
-      )
-      .get(name) as StepRow;
+    await this.db.run(
+      "INSERT INTO mundane_steps (name, kind, encoding, result, status, started_at) " +
+        "VALUES (?, ?, ?, NULL, 'pending', ?)",
+      [name, kind, encoding, now],
+    );
+    const row = (await this.db.get<StepRow>(
+      "SELECT id, name, kind, encoding, result, status, error FROM mundane_steps WHERE name = ?",
+      [name],
+    ))!;
     this.cache.set(name, row);
     return row;
   }
 
-  commitDone(name: string, encoding: StepRow["encoding"], result: string | Buffer): void {
+  async commitDone(
+    name: string,
+    encoding: StepRow["encoding"],
+    result: string | Buffer,
+  ): Promise<void> {
     const finished = new Date().toISOString();
-    this.db
-      .prepare(
-        "UPDATE mundane_steps SET status='done', encoding=?, result=?, finished_at=?, error=NULL " +
-          "WHERE name=?",
-      )
-      .run(encoding, result, finished, name);
+    await this.db.run(
+      "UPDATE mundane_steps SET status='done', encoding=?, result=?, finished_at=?, error=NULL " +
+        "WHERE name=?",
+      [encoding, result, finished, name],
+    );
     const row = this.cache.get(name)!;
     row.status = "done";
     row.encoding = encoding;
     row.result = result;
   }
 
-  commitFailed(name: string, errMsg: string): void {
+  async commitFailed(name: string, errMsg: string): Promise<void> {
     const finished = new Date().toISOString();
-    this.db
-      .prepare("UPDATE mundane_steps SET status='failed', error=?, finished_at=? WHERE name=?")
-      .run(errMsg, finished, name);
+    await this.db.run(
+      "UPDATE mundane_steps SET status='failed', error=?, finished_at=? WHERE name=?",
+      [errMsg, finished, name],
+    );
     const row = this.cache.get(name)!;
     row.status = "failed";
     row.error = errMsg;
@@ -219,17 +222,17 @@ class ContextImpl implements Context {
     if (cached && cached.status === "done") {
       return decodeResult(cached) as T;
     }
-    this.task.ensurePendingRow(name, "step", "json");
+    await this.task.ensurePendingRow(name, "step", "json");
     let value: T;
     try {
       value = await fn();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.task.commitFailed(name, msg);
+      await this.task.commitFailed(name, msg);
       throw new MundaneStepFailedError(name, e);
     }
     const text = checkJsonRoundtrip(value);
-    this.task.commitDone(name, "json", text);
+    await this.task.commitDone(name, "json", text);
     // Return the round-tripped value so first run and resume agree exactly.
     return JSON.parse(text) as T;
   }
@@ -245,8 +248,8 @@ class ContextImpl implements Context {
       wakeAt = Number(decodeResult(cached));
     } else {
       wakeAt = Date.now() + parseDurationMs(duration);
-      this.task.ensurePendingRow(name, "sleep", "json");
-      this.task.commitDone(name, "json", String(wakeAt));
+      await this.task.ensurePendingRow(name, "sleep", "json");
+      await this.task.commitDone(name, "json", String(wakeAt));
     }
     const remaining = wakeAt - Date.now();
     if (remaining > 0) {
@@ -263,17 +266,17 @@ export async function run<T>(path: string, fn: (ctx: Context) => Promise<T> | T)
     if (e instanceof MundaneLockedError) throw e;
     throw e;
   }
-  let db: Database.Database | null = null;
+  let db: Db | null = null;
   try {
-    db = new Database(path);
-    bootstrap(db);
-    const task = new TaskState(db);
+    db = await openDb(path);
+    await bootstrap(db);
+    const task = await TaskState.create(db);
     const ctx = new ContextImpl(task);
     return await fn(ctx);
   } finally {
     if (db) {
       try {
-        db.close();
+        await db.close();
       } catch {
         // ignore
       }

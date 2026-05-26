@@ -12,6 +12,9 @@ miss) — so a resumed run visibly skips the work it already did.
 ## Run it
 
 ```sh
+# Build @mundane/core first — the file: dep resolves to its dist/ output:
+(cd ../../typescript && npm install && npx tsc -p .)
+
 npm install        # links ../../typescript as @mundane/core
 npm run build
 

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import Database from "better-sqlite3";
+import { openDb } from "../src/db";
 import {
   MundaneDuplicateStepError,
   MundaneLockedError,
@@ -15,30 +15,31 @@ import {
 } from "../src/index";
 
 // Inspection lives in the CLI now; tests read on-disk state directly.
-function readSteps(path: string): { name: string; encoding: string; status: string }[] {
-  const db = new Database(path, { readonly: true });
+async function readSteps(
+  path: string,
+): Promise<{ name: string; encoding: string; status: string }[]> {
+  const db = await openDb(path, { readonly: true });
   try {
-    return db.prepare("SELECT name, encoding, status FROM mundane_steps ORDER BY id").all() as {
-      name: string;
-      encoding: string;
-      status: string;
-    }[];
+    return await db.all<{ name: string; encoding: string; status: string }>(
+      "SELECT name, encoding, status FROM mundane_steps ORDER BY id",
+    );
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
-function readResult(path: string, name: string): unknown {
-  const db = new Database(path, { readonly: true });
+async function readResult(path: string, name: string): Promise<unknown> {
+  const db = await openDb(path, { readonly: true });
   try {
-    const row = db.prepare("SELECT result, encoding FROM mundane_steps WHERE name = ?").get(name) as
-      | { result: Buffer | string; encoding: string }
-      | undefined;
+    const row = await db.get<{ result: Buffer | string; encoding: string }>(
+      "SELECT result, encoding FROM mundane_steps WHERE name = ?",
+      [name],
+    );
     if (!row) throw new Error(`no step ${name}`);
     const text = typeof row.result === "string" ? row.result : row.result.toString("utf8");
     return row.encoding === "json" ? JSON.parse(text) : text;
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
@@ -135,7 +136,7 @@ test("duplicate step name raises MundaneDuplicateStepError", async () => {
       (e: any) => e instanceof MundaneDuplicateStepError && e.stepName === "x",
     );
     // First step still committed before the dup raised.
-    const names = readSteps(path).map((s) => s.name);
+    const names = (await readSteps(path)).map((s) => s.name);
     assert.deepEqual(names, ["x"]);
   } finally {
     cleanup();
@@ -187,7 +188,7 @@ test("sequential runs on the same file do not spuriously lock", async () => {
     for (let i = 0; i < 5; i++) {
       await run(path, async (ctx: any) => ctx.step(`s${i}`, async () => i));
     }
-    const done = readSteps(path).filter((s) => s.status === "done");
+    const done = (await readSteps(path)).filter((s) => s.status === "done");
     assert.equal(done.length, 5);
   } finally {
     cleanup();
@@ -276,12 +277,11 @@ test("failed row is reset to pending during re-run", async () => {
     let midError: string | null = "stale";
     await run(path, async (ctx: any) =>
       ctx.step("s", async () => {
-        const db = new Database(path, { readonly: true });
-        const row = db.prepare("SELECT status, error FROM mundane_steps WHERE name='s'").get() as {
-          status: string;
-          error: string | null;
-        };
-        db.close();
+        const db = await openDb(path, { readonly: true });
+        const row = (await db.get<{ status: string; error: string | null }>(
+          "SELECT status, error FROM mundane_steps WHERE name='s'",
+        ))!;
+        await db.close();
         midStatus = row.status;
         midError = row.error;
         return 7;
@@ -299,12 +299,13 @@ test("pending step re-runs on resume", async () => {
   try {
     // Bootstrap, then leave a pending row behind (simulating a crash mid-step).
     await run(path, async () => {});
-    const db = new Database(path);
-    db.prepare(
+    const db = await openDb(path);
+    await db.run(
       "INSERT INTO mundane_steps (name, kind, encoding, result, status, started_at) " +
         "VALUES ('s', 'step', 'json', NULL, 'pending', ?)",
-    ).run(new Date().toISOString());
-    db.close();
+      [new Date().toISOString()],
+    );
+    await db.close();
 
     const calls: string[] = [];
     const r = await run(path, async (ctx: any) =>
@@ -327,10 +328,10 @@ test("steps are committed and decode round-trips", async () => {
       await ctx.step("a", async () => ({ x: 1 }));
       await ctx.step("b", async () => "hello");
     });
-    const done = readSteps(path).filter((s) => s.status === "done");
+    const done = (await readSteps(path)).filter((s) => s.status === "done");
     assert.equal(done.length, 2);
-    assert.deepEqual(readResult(path, "a"), { x: 1 });
-    assert.equal(readResult(path, "b"), "hello");
+    assert.deepEqual(await readResult(path, "a"), { x: 1 });
+    assert.equal(await readResult(path, "b"), "hello");
   } finally {
     cleanup();
   }

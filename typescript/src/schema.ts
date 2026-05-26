@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type Database from "better-sqlite3";
+import type { Db } from "./db";
 import { MundaneSchemaError } from "./errors";
 
 export const SCHEMA_VERSION = "1";
@@ -37,18 +37,18 @@ export const CREATE_INDEX = `
 CREATE INDEX IF NOT EXISTS mundane_steps_status ON mundane_steps(status)
 `;
 
-export function bootstrap(db: Database.Database): void {
-  db.pragma("journal_mode = DELETE");
+export async function bootstrap(db: Db): Promise<void> {
+  await db.exec("PRAGMA journal_mode = DELETE");
 
   // Pre-check: if mundane_meta exists with wrong schema_version, bail before
   // running CREATE INDEX (which assumes columns we only promise at v1).
-  const existing = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mundane_meta'")
-    .get();
+  const existing = await db.get(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='mundane_meta'",
+  );
   if (existing) {
-    const row = db.prepare("SELECT value FROM mundane_meta WHERE key='schema_version'").get() as
-      | { value?: string }
-      | undefined;
+    const row = await db.get<{ value?: string }>(
+      "SELECT value FROM mundane_meta WHERE key='schema_version'",
+    );
     if (row && row.value !== SCHEMA_VERSION) {
       throw new MundaneSchemaError(
         `schema_version is ${JSON.stringify(row.value)}, expected "${SCHEMA_VERSION}"`,
@@ -56,32 +56,32 @@ export function bootstrap(db: Database.Database): void {
     }
   }
 
-  db.exec("BEGIN IMMEDIATE");
+  await db.exec("BEGIN IMMEDIATE");
   try {
-    db.exec(CREATE_META);
-    db.exec(CREATE_STEPS);
-    db.exec(CREATE_INDEX);
-    db.prepare("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)").run(
+    await db.exec(CREATE_META);
+    await db.exec(CREATE_STEPS);
+    await db.exec(CREATE_INDEX);
+    await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)", [
       SCHEMA_VERSION,
-    );
-    db.prepare("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)").run(
+    ]);
+    await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)", [
       randomUUID(),
-    );
-    db.prepare("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)").run(
+    ]);
+    await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)", [
       new Date().toISOString(),
-    );
-    db.exec("COMMIT");
+    ]);
+    await db.exec("COMMIT");
   } catch (e) {
     try {
-      db.exec("ROLLBACK");
+      await db.exec("ROLLBACK");
     } catch {}
     throw e;
   }
 
   // Final check.
-  const row = db.prepare("SELECT value FROM mundane_meta WHERE key='schema_version'").get() as
-    | { value?: string }
-    | undefined;
+  const row = await db.get<{ value?: string }>(
+    "SELECT value FROM mundane_meta WHERE key='schema_version'",
+  );
   if (!row || row.value !== SCHEMA_VERSION) {
     throw new MundaneSchemaError(
       `schema_version is ${JSON.stringify(row?.value)}, expected "${SCHEMA_VERSION}"`,

@@ -212,8 +212,10 @@ to run without `MUNDANE_LOCK_FD` in the environment):
 
 ## 7. TypeScript interface
 
-Package: `@mundane/core`. Zero runtime deps beyond `better-sqlite3` (sync, in
-keeping with the sync model of `flock`+body+commit).
+Package: `@mundane/core`. Runtime deps: `node-sqlite3` and `fs-ext`. The DB is
+opened with the `unix-none` VFS so SQLite does no file locking of its own — the
+`flock` (§3) is the sole writer lock, which also avoids colliding with SQLite's
+own `flock`-based locking on platforms like macOS.
 
 ```ts
 import { run } from "@mundane/core";
