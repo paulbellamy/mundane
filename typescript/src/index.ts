@@ -1,5 +1,5 @@
 /**
- * @mundane/core — tiny durable-execution library.
+ * mundane-sdk — tiny durable-execution library.
  *
  * Public API:
  *   run(path, async (ctx) => { ... })

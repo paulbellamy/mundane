@@ -1,7 +1,7 @@
 // Conformance driver (TypeScript/Node). See conformance/run.py.
 //
 // Usage: node driver.js <task.db> <scenario.json>
-// Requires the compiled @mundane/core (run `tsc -p .` in typescript/ first).
+// Requires the compiled mundane-sdk (run `tsc -p .` in typescript/ first).
 
 const fs = require("node:fs");
 const { run } = require("../../typescript/dist/src/index.js");

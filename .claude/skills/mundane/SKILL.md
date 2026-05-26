@@ -42,8 +42,8 @@ scheduler (bring your own cron/supervisor). See `SPEC.md` for the full contract.
 ## Install
 
 - **Go:** `go get github.com/paulbellamy/mundane/go` (pure-Go SQLite, no cgo).
-- **Python:** `pip install mundane` (stdlib only, Python 3.8+).
-- **TypeScript:** `npm install @mundane/core` (Node 18+; pulls in `node-sqlite3`, `fs-ext`).
+- **Python:** `pip install mundane-sdk` (stdlib only, Python 3.8+).
+- **TypeScript:** `npm install mundane-sdk` (Node 18+; pulls in `node-sqlite3`, `fs-ext`).
 - **Shell:** needs the `mundane` CLI binary on `PATH`. Easiest:
   `curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh`
   (detects OS/arch, downloads a release binary; `MUNDANE_VERSION` /
@@ -92,7 +92,7 @@ mundane.run("task.db", workflow)
 
 ### TypeScript
 ```ts
-import { run } from "@mundane/core";
+import { run } from "mundane-sdk";
 
 await run("task.db", async (ctx) => {
   const user = await ctx.step("fetch", async () => (await fetch(url)).json());

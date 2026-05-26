@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mundane"
+name = "mundane-sdk"
 version = "2.0.0"
 description = "Tiny durable-execution: one workflow run is one SQLite file."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { file = "../LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Paul Bellamy" }]
 dependencies = []
 
