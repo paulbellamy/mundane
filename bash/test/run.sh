@@ -247,7 +247,9 @@ test_binary() {
     sh -c "eval \"\$('$MUNDANE' init '$db')\"
 step raw -- printf 'a\\000b\\001c'" > "$WORKDIR/bin.out" 2>/dev/null
 
-    size=$(wc -c < "$WORKDIR/bin.out")
+    # BSD wc on macOS pads with leading spaces; strip them so the comparison
+    # is portable.
+    size=$(wc -c < "$WORKDIR/bin.out" | tr -d '[:space:]')
     [ "$size" = "5" ] || { _fail "wrong byte count: $size"; return; }
 
     expected_hex="6100620163"

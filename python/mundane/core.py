@@ -6,6 +6,7 @@ import asyncio
 import json
 import sqlite3
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -332,7 +333,18 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
 
     conn: Optional[sqlite3.Connection] = None
     try:
-        conn = sqlite3.connect(path, isolation_level=None)  # autocommit
+        # vfs=unix-none disables SQLite's own file locking. Mundane already
+        # holds an exclusive flock(2) on the file for the whole run, so
+        # SQLite's internal locking is redundant — and on macOS, where
+        # SQLite's POSIX locks share state with our flock on the same vnode,
+        # leaving it on would deadlock against ourselves ("database is
+        # locked"). The flock above is the sole writer-lock authority.
+        # quote() with safe="/" preserves path separators but escapes ? & %
+        # so paths with those characters don't break URI parsing.
+        encoded = urllib.parse.quote(path, safe="/")
+        conn = sqlite3.connect(
+            f"file:{encoded}?vfs=unix-none", uri=True, isolation_level=None
+        )
         conn.execute("PRAGMA journal_mode = DELETE")
 
         # Pre-check: if mundane_meta already exists with a non-1 schema_version,

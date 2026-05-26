@@ -4,7 +4,12 @@
 
 if [ ! -e {{.DB}} ]; then : >> {{.DB}} || exit 1; fi
 exec {{.LockFD}}<>{{.DB}} || exit 1
-flock -nx {{.LockFD}} || { printf 'mundane: %s is locked by another process\n' {{.DB}} >&2; exit 75; }
+# Take an exclusive non-blocking flock on the fd we just opened. We call
+# `mundane __flock` rather than util-linux's `flock(1)` because macOS does
+# not ship flock(1); the helper invokes flock(2) on the inherited fd and
+# exits, leaving the lock held on the open file description that this
+# shell still references.
+{{.Exe}} __flock {{.LockFD}} || { printf 'mundane: %s is locked by another process\n' {{.DB}} >&2; exit 75; }
 MUNDANE_LOCK_FD={{.LockFD}}
 MUNDANE_DB={{.DB}}
 MUNDANE_EXE={{.Exe}}

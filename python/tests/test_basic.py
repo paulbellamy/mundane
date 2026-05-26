@@ -17,6 +17,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import mundane
 
 
+def _hold_lock_child(path, barrier, done):
+    # Module-scope helper for test_second_process_gets_locked_error.
+    # Must be picklable for multiprocessing's spawn start method (default on
+    # macOS), so it can't be a local closure inside the test method.
+    def wf(ctx):
+        ctx.step("a", lambda: 1)
+        barrier.set()
+        done.wait(timeout=5)
+        return 0
+
+    mundane.run(path, wf)
+
+
 def _names(path):
     """Step names in id order, read straight from SQLite (no inspect API)."""
     conn = sqlite3.connect(path)
@@ -109,16 +122,7 @@ class Locking(unittest.TestCase):
             barrier = mp.Event()
             done = mp.Event()
 
-            def hold_lock(p, b, d):
-                import mundane as m
-                def wf(ctx):
-                    ctx.step("a", lambda: 1)
-                    b.set()
-                    d.wait(timeout=5)
-                    return 0
-                m.run(p, wf)
-
-            proc = mp.Process(target=hold_lock, args=(path, barrier, done))
+            proc = mp.Process(target=_hold_lock_child, args=(path, barrier, done))
             proc.start()
             try:
                 barrier.wait(timeout=5)
@@ -207,7 +211,11 @@ class FailedStep(unittest.TestCase):
             seen = {}
 
             def observe():
-                conn = sqlite3.connect(path)
+                # observe() runs inside mundane.run, while the writer holds
+                # an exclusive flock on the file. On macOS, opening with the
+                # default unix VFS would deadlock against that flock — open
+                # with unix-none (no SQLite-level lock) instead.
+                conn = sqlite3.connect(f"file:{path}?vfs=unix-none", uri=True)
                 seen["status"], seen["error"] = conn.execute(
                     "SELECT status, error FROM mundane_steps WHERE name='s'"
                 ).fetchone()
