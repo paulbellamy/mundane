@@ -12,6 +12,7 @@ const usage = `usage: mundane <subcommand> [args]
   get    <task.db> <name>
 
   __bootstrap <task.db>            (internal; used by init)
+  __flock <fd>                     (internal; used by init; replaces util-linux flock(1) on systems without it)
   __step <task.db> <name> -- CMD [args...]
                                    (internal; called by step shell function)
   __nap  <task.db> <name> <duration>
@@ -37,6 +38,8 @@ func main() {
 		exit = cmdGet(args)
 	case "__bootstrap":
 		exit = cmdBootstrap(args)
+	case "__flock":
+		exit = cmdFlock(args)
 	case "__step":
 		exit = cmdStep(args)
 	case "__nap":

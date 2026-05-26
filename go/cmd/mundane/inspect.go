@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/paulbellamy/mundane/go/mundane"
@@ -18,7 +19,15 @@ func openRO(path string) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("cannot open task %q: %w", path, err)
 	}
-	return sql.Open("sqlite", "file:"+path+"?mode=ro")
+	// vfs=unix-none disables SQLite's own locking; mundane's flock(2) is the
+	// sole writer-lock authority (see DBURI). mode=ro keeps this open
+	// read-only so inspect never racing-writes.
+	u := url.URL{Scheme: "file", Path: path}
+	q := u.Query()
+	q.Set("vfs", "unix-none")
+	q.Set("mode", "ro")
+	u.RawQuery = q.Encode()
+	return sql.Open("sqlite", u.String())
 }
 
 func checkSchemaRO(db *sql.DB, path string) error {

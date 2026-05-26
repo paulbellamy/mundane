@@ -14,7 +14,7 @@ func cmdBootstrap(args []string) int {
 	path := args[0]
 	// We expect to be called from the eval'd init script, which already holds
 	// the flock on MUNDANE_LOCK_FD. We bootstrap inside that lock.
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", mundane.DBURI(path))
 	if err != nil {
 		return die(1, "open: %v", err)
 	}
