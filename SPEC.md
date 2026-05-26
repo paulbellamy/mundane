@@ -4,8 +4,8 @@ A tiny durable-execution library. One workflow run is one SQLite file. Crash,
 re-invoke, resume. No daemon, no broker, no scheduler — bring your own cron.
 
 Four runtimes ship from the same repo: a single `mundane` CLI binary (Go;
-also exposes a Go SDK), a TypeScript package (`@mundane/core`), and a
-Python package (`mundane`). The shell UX is the same binary used via
+also exposes a Go SDK), a TypeScript package (`mundane-sdk`), and a
+Python package (`mundane-sdk`). The shell UX is the same binary used via
 `eval "$(mundane init <db>)"`. All four read and write the same on-disk
 format and interoperate row-for-row.
 
@@ -212,13 +212,13 @@ to run without `MUNDANE_LOCK_FD` in the environment):
 
 ## 7. TypeScript interface
 
-Package: `@mundane/core`. Runtime deps: `node-sqlite3` and `fs-ext`. The DB is
+Package: `mundane-sdk`. Runtime deps: `node-sqlite3` and `fs-ext`. The DB is
 opened with the `unix-none` VFS so SQLite does no file locking of its own — the
 `flock` (§3) is the sole writer lock, which also avoids colliding with SQLite's
 own `flock`-based locking on platforms like macOS.
 
 ```ts
-import { run } from "@mundane/core";
+import { run } from "mundane-sdk";
 
 await run("task.db", async (ctx) => {
   const user = await ctx.step("fetch-user", async () => {

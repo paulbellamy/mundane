@@ -16,8 +16,8 @@ same on-disk format:
 |------------|-----------------------|-------------------------------|
 | Shell (CLI)| `go/cmd/mundane`      | single Go binary; eval-init   |
 | Go SDK     | `go/mundane`          | `github.com/paulbellamy/mundane/go` |
-| TypeScript | `typescript/`         | `@mundane/core` npm package   |
-| Python     | `python/`             | `mundane` pypi package        |
+| TypeScript | `typescript/`         | `mundane-sdk` npm package     |
+| Python     | `python/`             | `mundane-sdk` pypi package    |
 
 See [`SPEC.md`](./SPEC.md) for the contract.
 
@@ -63,7 +63,7 @@ err := mundane.Run("task.db", func(ctx *mundane.Ctx) error {
 
 ### Python
 
-`pip install mundane`
+`pip install mundane-sdk`
 
 ```python
 import mundane
@@ -78,10 +78,10 @@ mundane.run("task.db", workflow)
 
 ### TypeScript
 
-`npm install @mundane/core`.
+`npm install mundane-sdk`.
 
 ```ts
-import { run } from "@mundane/core";
+import { run } from "mundane-sdk";
 
 await run("task.db", async (ctx) => {
   const user = await ctx.step("fetch", async () => ({ name: "alice" }));

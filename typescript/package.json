@@ -1,5 +1,5 @@
 {
-  "name": "@mundane/core",
+  "name": "mundane-sdk",
   "version": "2.0.0",
   "description": "Tiny durable-execution: one workflow run is one SQLite file.",
   "license": "MIT",

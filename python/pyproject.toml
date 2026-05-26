@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mundane"
+name = "mundane-sdk"
 version = "2.0.0"
 description = "Tiny durable-execution: one workflow run is one SQLite file."
 readme = "README.md"

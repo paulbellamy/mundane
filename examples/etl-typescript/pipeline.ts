@@ -23,7 +23,7 @@
  *   ../../go/mundane-bin steps etl.db
  */
 
-import { run } from "@mundane/core";
+import { run } from "mundane-sdk";
 
 interface SourceRecord {
   id: number;

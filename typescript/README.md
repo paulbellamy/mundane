@@ -1,9 +1,9 @@
-# @mundane/core (TypeScript)
+# mundane-sdk (TypeScript)
 
 See [`../SPEC.md`](../SPEC.md) for the cross-runtime contract.
 
 ```ts
-import { run } from "@mundane/core";
+import { run } from "mundane-sdk";
 
 await run("task.db", async (ctx) => {
   const user = await ctx.step("fetch", async () => ({ name: "alice" }));

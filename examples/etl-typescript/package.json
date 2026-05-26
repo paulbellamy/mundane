@@ -2,13 +2,13 @@
   "name": "mundane-example-etl",
   "version": "0.0.0",
   "private": true,
-  "description": "Crash-resumable ETL pipeline built on @mundane/core.",
+  "description": "Crash-resumable ETL pipeline built on mundane-sdk.",
   "scripts": {
     "build": "tsc",
     "start": "node dist/pipeline.js"
   },
   "dependencies": {
-    "@mundane/core": "file:../../typescript"
+    "mundane-sdk": "file:../../typescript"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

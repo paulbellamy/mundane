@@ -1,4 +1,4 @@
-/* Basic tests for @mundane/core */
+/* Basic tests for mundane-sdk */
 
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
