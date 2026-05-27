@@ -3,11 +3,8 @@
 ## Reporting a vulnerability
 
 Please report security vulnerabilities privately — do **not** open a public
-GitHub issue.
-
-- Open a [private security advisory](https://github.com/paulbellamy/mundane/security/advisories/new)
-  on the repository, or
-- Email **paul@paulbellamy.com** with the details.
+GitHub issue. Open a [private security advisory](https://github.com/paulbellamy/mundane/security/advisories/new)
+on the repository.
 
 Please include a description of the issue, the affected runtime(s) (shell, Go,
 Python, or TypeScript), and a minimal reproduction if you have one. We'll
