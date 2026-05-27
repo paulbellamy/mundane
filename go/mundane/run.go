@@ -51,7 +51,6 @@ func run(path string, adoptLock, skipBootstrap bool, fn func(*Ctx) error) error 
 		}
 		defer lock.Release()
 	}
-	_ = lock
 
 	db, err := sql.Open("sqlite", DBURI(path))
 	if err != nil {

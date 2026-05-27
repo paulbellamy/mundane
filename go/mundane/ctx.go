@@ -2,6 +2,7 @@ package mundane
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -85,7 +86,7 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 			// Decode the stored JSON straight into T (not via `any`), so int64
 			// precision survives the round-trip just as it does on write.
 			var out T
-			if err := jsonUnmarshal(cached.Result, &out); err != nil {
+			if err := json.Unmarshal(cached.Result, &out); err != nil {
 				return zero, fmt.Errorf("decode cached step %q: %w", name, err)
 			}
 			return out, nil
@@ -123,7 +124,7 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 	// Return the round-tripped value (decoded into T) so the first run and a
 	// later cache hit yield identical values, even for `any`-typed results.
 	var out T
-	if err := jsonUnmarshal([]byte(text), &out); err != nil {
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		return zero, fmt.Errorf("decode step %q result: %w", name, err)
 	}
 	return out, nil
@@ -307,12 +308,12 @@ func commitFailed(db *sql.DB, name, errMsg string) error {
 // remarshal converts a generic decoded JSON value into the caller's target type T.
 func remarshal[T any](v any) (T, error) {
 	var zero T
-	text, err := jsonMarshal(v)
+	text, err := json.Marshal(v)
 	if err != nil {
 		return zero, err
 	}
 	var out T
-	if err := jsonUnmarshal(text, &out); err != nil {
+	if err := json.Unmarshal(text, &out); err != nil {
 		return zero, err
 	}
 	return out, nil

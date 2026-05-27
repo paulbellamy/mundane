@@ -253,13 +253,7 @@ class ContextImpl implements Context {
 }
 
 export async function run<T>(path: string, fn: (ctx: Context) => Promise<T> | T): Promise<T> {
-  let lock: AcquiredLock;
-  try {
-    lock = await acquireLock(path);
-  } catch (e) {
-    if (e instanceof LockedError) throw e;
-    throw e;
-  }
+  const lock: AcquiredLock = await acquireLock(path);
   let db: Db | null = null;
   try {
     db = await openDb(path);
