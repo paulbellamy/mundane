@@ -10,7 +10,6 @@ import (
 )
 
 type StepRow struct {
-	ID       int64
 	Name     string
 	Kind     string
 	Encoding string
@@ -40,7 +39,7 @@ func newCtx(db *sql.DB) (*Ctx, error) {
 
 func (c *Ctx) loadCache() error {
 	rows, err := c.db.Query(
-		"SELECT id, name, kind, encoding, result, status, COALESCE(error, '') " +
+		"SELECT name, kind, encoding, result, status, COALESCE(error, '') " +
 			"FROM mundane_steps ORDER BY id",
 	)
 	if err != nil {
@@ -50,7 +49,7 @@ func (c *Ctx) loadCache() error {
 	for rows.Next() {
 		var r StepRow
 		var raw []byte
-		if err := rows.Scan(&r.ID, &r.Name, &r.Kind, &r.Encoding, &raw, &r.Status, &r.Err); err != nil {
+		if err := rows.Scan(&r.Name, &r.Kind, &r.Encoding, &raw, &r.Status, &r.Err); err != nil {
 			return fmt.Errorf("scan step row: %w", err)
 		}
 		r.Result = raw
@@ -256,26 +255,14 @@ func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding s
 		existing.Err = ""
 		return nil
 	}
-	now := IsoNow()
 	if _, err := db.Exec(
 		"INSERT OR IGNORE INTO mundane_steps (name, kind, encoding, status, started_at) "+
 			"VALUES (?, ?, ?, 'pending', ?)",
-		name, kind, encoding, now,
+		name, kind, encoding, IsoNow(),
 	); err != nil {
 		return fmt.Errorf("insert pending: %w", err)
 	}
-	row := db.QueryRow(
-		"SELECT id, name, kind, encoding, result, status, COALESCE(error, '') "+
-			"FROM mundane_steps WHERE name = ?",
-		name,
-	)
-	var r StepRow
-	var raw []byte
-	if err := row.Scan(&r.ID, &r.Name, &r.Kind, &r.Encoding, &raw, &r.Status, &r.Err); err != nil {
-		return fmt.Errorf("read back pending row: %w", err)
-	}
-	r.Result = raw
-	cache[name] = &r
+	cache[name] = &StepRow{Name: name, Kind: kind, Encoding: encoding, Status: StatusPending}
 	return nil
 }
 

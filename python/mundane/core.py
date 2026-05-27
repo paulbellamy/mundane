@@ -101,7 +101,6 @@ def _deep_equal(a: Any, b: Any) -> bool:
 
 @dataclass
 class _StepRow:
-    id: int
     name: str
     kind: str
     encoding: str
@@ -141,19 +140,11 @@ class _Task:
 
     def _load_cache(self) -> None:
         cur = self.conn.execute(
-            "SELECT id, name, kind, encoding, result, status, error "
+            "SELECT name, kind, encoding, result, status, error "
             "FROM mundane_steps ORDER BY id"
         )
         for row in cur:
-            sr = _StepRow(
-                id=row[0],
-                name=row[1],
-                kind=row[2],
-                encoding=row[3],
-                result=row[4],
-                status=row[5],
-                error=row[6],
-            )
+            sr = _StepRow(*row)
             self.cache[sr.name] = sr
 
     def _check_seen(self, name: str) -> None:
@@ -182,25 +173,14 @@ class _Task:
             existing.result = None
             existing.error = None
             return existing
-        now = _iso_now()
         self.conn.execute(
             "INSERT INTO mundane_steps "
             "(name, kind, encoding, result, status, started_at) "
             "VALUES (?, ?, ?, NULL, 'pending', ?)",
-            (name, kind, encoding, now),
+            (name, kind, encoding, _iso_now()),
         )
         self.conn.commit()
-        # Re-load row to get id
-        cur = self.conn.execute(
-            "SELECT id, name, kind, encoding, result, status, error "
-            "FROM mundane_steps WHERE name = ?",
-            (name,),
-        )
-        row = cur.fetchone()
-        sr = _StepRow(
-            id=row[0], name=row[1], kind=row[2], encoding=row[3],
-            result=row[4], status=row[5], error=row[6],
-        )
+        sr = _StepRow(name, kind, encoding, None, "pending", None)
         self.cache[name] = sr
         return sr
 
