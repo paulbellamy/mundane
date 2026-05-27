@@ -1,50 +1,50 @@
 /**
  * Custom error classes thrown by mundane.
  *
- * - MundaneLockedError: another live process holds the file lock.
- * - MundaneSerializationError: a step's return value doesn't survive a
+ * - LockedError: another live process holds the file lock.
+ * - SerializationError: a step's return value doesn't survive a
  *   JSON round-trip (Date, undefined, BigInt, Map, Set, function, circular).
- * - MundaneSchemaError: file exists but meta.schema_version != "1".
- * - MundaneStepFailedError: a step body threw; wraps the underlying error.
+ * - SchemaError: file exists but meta.schema_version != "1".
+ * - StepFailedError: a step body threw; wraps the underlying error.
  */
 
-export class MundaneLockedError extends Error {
+export class LockedError extends Error {
   readonly code = "EMUNDANELOCKED";
   constructor(message: string) {
     super(message);
-    this.name = "MundaneLockedError";
+    this.name = "LockedError";
   }
 }
 
-export class MundaneSerializationError extends Error {
+export class SerializationError extends Error {
   readonly code = "EMUNDANESERIALIZATION";
   readonly path?: string;
   constructor(message: string, path?: string) {
     super(message);
-    this.name = "MundaneSerializationError";
+    this.name = "SerializationError";
     this.path = path;
   }
 }
 
-export class MundaneSchemaError extends Error {
+export class SchemaError extends Error {
   readonly code = "EMUNDANESCHEMA";
   constructor(message: string) {
     super(message);
-    this.name = "MundaneSchemaError";
+    this.name = "SchemaError";
   }
 }
 
-export class MundaneDuplicateStepError extends Error {
+export class DuplicateStepError extends Error {
   readonly code = "EMUNDANEDUPLICATE";
   readonly stepName: string;
   constructor(stepName: string) {
     super(`duplicate step name: ${stepName}`);
-    this.name = "MundaneDuplicateStepError";
+    this.name = "DuplicateStepError";
     this.stepName = stepName;
   }
 }
 
-export class MundaneStepFailedError extends Error {
+export class StepFailedError extends Error {
   readonly code = "EMUNDANESTEPFAILED";
   readonly stepName: string;
   readonly original: unknown;
@@ -54,7 +54,7 @@ export class MundaneStepFailedError extends Error {
         ? `step ${JSON.stringify(stepName)} failed: ${original.message}`
         : `step ${JSON.stringify(stepName)} failed: ${String(original)}`;
     super(msg);
-    this.name = "MundaneStepFailedError";
+    this.name = "StepFailedError";
     this.stepName = stepName;
     this.original = original;
     if (original instanceof Error && original.stack) {

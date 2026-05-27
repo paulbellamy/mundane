@@ -12,23 +12,17 @@
 import { type Db, openDb } from "./db";
 import { parseDurationMs } from "./duration";
 import {
-  MundaneDuplicateStepError,
-  MundaneLockedError,
-  MundaneSchemaError,
-  MundaneSerializationError,
-  MundaneStepFailedError,
+  DuplicateStepError,
+  LockedError,
+  SchemaError,
+  SerializationError,
+  StepFailedError,
 } from "./errors";
 import { type AcquiredLock, acquireLock } from "./lock";
 import { validateName } from "./names";
 import { bootstrap } from "./schema";
 
-export {
-  MundaneDuplicateStepError,
-  MundaneLockedError,
-  MundaneSchemaError,
-  MundaneSerializationError,
-  MundaneStepFailedError,
-};
+export { DuplicateStepError, LockedError, SchemaError, SerializationError, StepFailedError };
 
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -52,18 +46,18 @@ function checkJsonRoundtrip(value: unknown): string {
   try {
     text = JSON.stringify(value);
   } catch (e) {
-    throw new MundaneSerializationError(`value is not JSON-serializable: ${(e as Error).message}`);
+    throw new SerializationError(`value is not JSON-serializable: ${(e as Error).message}`);
   }
   if (text === undefined) {
     // JSON.stringify returns undefined for top-level undefined/function/symbol
-    throw new MundaneSerializationError(
+    throw new SerializationError(
       "value is not JSON-serializable (undefined / function / symbol at top level)",
     );
   }
   const decoded = JSON.parse(text);
   const mismatch = deepDiff(value, decoded, "");
   if (mismatch !== null) {
-    throw new MundaneSerializationError(
+    throw new SerializationError(
       `value does not round-trip through JSON at ${JSON.stringify(mismatch)}`,
       mismatch,
     );
@@ -136,7 +130,7 @@ class TaskState {
 
   checkSeen(name: string): void {
     if (this.seen.has(name)) {
-      throw new MundaneDuplicateStepError(name);
+      throw new DuplicateStepError(name);
     }
     this.seen.add(name);
   }
@@ -229,7 +223,7 @@ class ContextImpl implements Context {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await this.task.commitFailed(name, msg);
-      throw new MundaneStepFailedError(name, e);
+      throw new StepFailedError(name, e);
     }
     const text = checkJsonRoundtrip(value);
     await this.task.commitDone(name, "json", text);
@@ -263,7 +257,7 @@ export async function run<T>(path: string, fn: (ctx: Context) => Promise<T> | T)
   try {
     lock = await acquireLock(path);
   } catch (e) {
-    if (e instanceof MundaneLockedError) throw e;
+    if (e instanceof LockedError) throw e;
     throw e;
   }
   let db: Db | null = null;

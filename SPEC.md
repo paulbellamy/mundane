@@ -243,14 +243,14 @@ or a number of milliseconds.
 JSON contract: the value returned from `fn` must satisfy
 `deepEqual(x, JSON.parse(JSON.stringify(x)))`. The runtime performs that
 check on the first write (only — not on subsequent reads) and throws
-`MundaneSerializationError` with the offending key path if it fails. This
+`SerializationError` with the offending key path if it fails. This
 catches `Date`, `undefined`, `BigInt`, `Map`, `Set`, functions, and circular
 refs at the call site instead of silently corrupting the cache.
 
 `run` returns the body's return value. Lock contention throws
-`MundaneLockedError` (no retry — the caller decides). Calling `ctx.step` or
+`LockedError` (no retry — the caller decides). Calling `ctx.step` or
 `ctx.sleep` twice with the same name in one body throws
-`MundaneDuplicateStepError`.
+`DuplicateStepError`.
 
 ## 8. Python interface
 

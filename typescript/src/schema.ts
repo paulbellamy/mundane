@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "./db";
-import { MundaneSchemaError } from "./errors";
+import { SchemaError } from "./errors";
 
 export const SCHEMA_VERSION = "1";
 
@@ -50,7 +50,7 @@ export async function bootstrap(db: Db): Promise<void> {
       "SELECT value FROM mundane_meta WHERE key='schema_version'",
     );
     if (row && row.value !== SCHEMA_VERSION) {
-      throw new MundaneSchemaError(
+      throw new SchemaError(
         `schema_version is ${JSON.stringify(row.value)}, expected "${SCHEMA_VERSION}"`,
       );
     }
@@ -83,7 +83,7 @@ export async function bootstrap(db: Db): Promise<void> {
     "SELECT value FROM mundane_meta WHERE key='schema_version'",
   );
   if (!row || row.value !== SCHEMA_VERSION) {
-    throw new MundaneSchemaError(
+    throw new SchemaError(
       `schema_version is ${JSON.stringify(row?.value)}, expected "${SCHEMA_VERSION}"`,
     );
   }
