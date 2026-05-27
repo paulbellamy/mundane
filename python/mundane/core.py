@@ -357,20 +357,15 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
             statements = [s.strip() for s in BOOTSTRAP_SQL.split(";") if s.strip()]
             for stmt in statements:
                 conn.execute(stmt)
-            now_iso = _iso_now()
-            new_uuid = str(uuid.uuid4())
-            conn.execute(
-                "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)",
-                (SCHEMA_VERSION,),
-            )
-            conn.execute(
-                "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)",
-                (new_uuid,),
-            )
-            conn.execute(
-                "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)",
-                (now_iso,),
-            )
+            for key, value in (
+                ("schema_version", SCHEMA_VERSION),
+                ("task_id", str(uuid.uuid4())),
+                ("created_at", _iso_now()),
+            ):
+                conn.execute(
+                    "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES (?, ?)",
+                    (key, value),
+                )
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
