@@ -61,15 +61,13 @@ export async function bootstrap(db: Db): Promise<void> {
     await db.exec(CREATE_META);
     await db.exec(CREATE_STEPS);
     await db.exec(CREATE_INDEX);
-    await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)", [
-      SCHEMA_VERSION,
-    ]);
-    await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)", [
-      randomUUID(),
-    ]);
-    await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)", [
-      new Date().toISOString(),
-    ]);
+    for (const [key, value] of [
+      ["schema_version", SCHEMA_VERSION],
+      ["task_id", randomUUID()],
+      ["created_at", new Date().toISOString()],
+    ]) {
+      await db.run("INSERT OR IGNORE INTO mundane_meta (key, value) VALUES (?, ?)", [key, value]);
+    }
     await db.exec("COMMIT");
   } catch (e) {
     try {

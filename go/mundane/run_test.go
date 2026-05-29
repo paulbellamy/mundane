@@ -8,9 +8,12 @@ import (
 	"testing"
 )
 
+func tmpDB(t *testing.T) string {
+	return filepath.Join(t.TempDir(), "task.db")
+}
+
 func TestStepAnyResultStableAcrossRuns(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 
 	var first, hit any
 	if err := Run(path, func(ctx *Ctx) error {
@@ -38,8 +41,7 @@ func TestRunLocksDespiteLockFDEnv(t *testing.T) {
 	// A stray MUNDANE_LOCK_FD in the environment must not disable locking in
 	// the public Run (only the CLI's RunAdoptCLI adopts a parent lock).
 	t.Setenv("MUNDANE_LOCK_FD", "7")
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	err := Run(path, func(*Ctx) error {
 		return Run(path, func(*Ctx) error { return nil })
 	})
@@ -55,8 +57,7 @@ func TestStepStructAndLargeIntRoundtrip(t *testing.T) {
 		Name  string
 		ID    int64
 	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	want := User{Email: "a@b.c", Name: "alice", ID: 9007199254740993}
 
 	if err := Run(path, func(ctx *Ctx) error {
@@ -92,8 +93,7 @@ func TestStepStructAndLargeIntRoundtrip(t *testing.T) {
 }
 
 func TestFailedStepReruns(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 
 	err := Run(path, func(ctx *Ctx) error {
 		_, err := Step(ctx, "s", func() (int, error) { return 0, fmt.Errorf("boom") })
@@ -124,8 +124,7 @@ func TestFailedStepReruns(t *testing.T) {
 }
 
 func TestFailedStepResetToPendingDuringRerun(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 
 	if err := Run(path, func(ctx *Ctx) error {
 		_, err := Step(ctx, "s", func() (int, error) { return 0, fmt.Errorf("boom") })
@@ -156,8 +155,7 @@ func TestFailedStepResetToPendingDuringRerun(t *testing.T) {
 }
 
 func TestPendingStepReruns(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 
 	// Bootstrap, then leave a pending row behind (simulating a crash mid-step).
 	if err := Run(path, func(ctx *Ctx) error {
@@ -188,8 +186,7 @@ func TestPendingStepReruns(t *testing.T) {
 }
 
 func TestRunBootstrapAndStep(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 
 	called := 0
 	err := Run(path, func(ctx *Ctx) error {
@@ -236,8 +233,7 @@ func TestRunBootstrapAndStep(t *testing.T) {
 }
 
 func TestDuplicateStepName(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	err := Run(path, func(ctx *Ctx) error {
 		_, _ = Step(ctx, "x", func() (int, error) { return 1, nil })
 		_, err := Step(ctx, "x", func() (int, error) { return 2, nil })
@@ -253,8 +249,7 @@ func TestDuplicateStepName(t *testing.T) {
 }
 
 func TestLockContention(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 
 	holdErr := make(chan error, 1)
 	holding := make(chan struct{})
@@ -286,8 +281,7 @@ func TestLockContention(t *testing.T) {
 }
 
 func TestInvalidName(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	err := Run(path, func(ctx *Ctx) error {
 		_, err := Step(ctx, "has space", func() (int, error) { return 0, nil })
 		return err
@@ -299,8 +293,7 @@ func TestInvalidName(t *testing.T) {
 }
 
 func TestSleepEpoch(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	err := Run(path, func(ctx *Ctx) error {
 		return ctx.Sleep("brief", "1ms")
 	})
@@ -318,8 +311,7 @@ func TestSleepEpoch(t *testing.T) {
 }
 
 func TestSleepResumeIgnoresInvalidDuration(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	if err := Run(path, func(ctx *Ctx) error { return ctx.Sleep("n", "1ms") }); err != nil {
 		t.Fatalf("first sleep: %v", err)
 	}
@@ -331,8 +323,7 @@ func TestSleepResumeIgnoresInvalidDuration(t *testing.T) {
 }
 
 func TestSchemaMismatch(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "task.db")
+	path := tmpDB(t)
 	// Bootstrap once normally.
 	if err := Run(path, func(ctx *Ctx) error { return nil }); err != nil {
 		t.Fatal(err)

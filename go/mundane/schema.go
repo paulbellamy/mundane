@@ -81,25 +81,18 @@ func Bootstrap(db *sql.DB, path string) error {
 		return fmt.Errorf("bootstrap DDL: %w", err)
 	}
 
-	now := IsoNow()
-	taskID := uuid.New().String()
-	if _, err := tx.Exec(
-		"INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)",
-		SchemaVersion,
-	); err != nil {
-		return fmt.Errorf("seed schema_version: %w", err)
+	seed := []struct{ key, value string }{
+		{"schema_version", SchemaVersion},
+		{"task_id", uuid.New().String()},
+		{"created_at", IsoNow()},
 	}
-	if _, err := tx.Exec(
-		"INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)",
-		taskID,
-	); err != nil {
-		return fmt.Errorf("seed task_id: %w", err)
-	}
-	if _, err := tx.Exec(
-		"INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)",
-		now,
-	); err != nil {
-		return fmt.Errorf("seed created_at: %w", err)
+	for _, s := range seed {
+		if _, err := tx.Exec(
+			"INSERT OR IGNORE INTO mundane_meta (key, value) VALUES (?, ?)",
+			s.key, s.value,
+		); err != nil {
+			return fmt.Errorf("seed %s: %w", s.key, err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)

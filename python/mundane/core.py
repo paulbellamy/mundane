@@ -101,7 +101,6 @@ def _deep_equal(a: Any, b: Any) -> bool:
 
 @dataclass
 class _StepRow:
-    id: int
     name: str
     kind: str
     encoding: str
@@ -141,19 +140,11 @@ class _Task:
 
     def _load_cache(self) -> None:
         cur = self.conn.execute(
-            "SELECT id, name, kind, encoding, result, status, error "
+            "SELECT name, kind, encoding, result, status, error "
             "FROM mundane_steps ORDER BY id"
         )
         for row in cur:
-            sr = _StepRow(
-                id=row[0],
-                name=row[1],
-                kind=row[2],
-                encoding=row[3],
-                result=row[4],
-                status=row[5],
-                error=row[6],
-            )
+            sr = _StepRow(*row)
             self.cache[sr.name] = sr
 
     def _check_seen(self, name: str) -> None:
@@ -182,25 +173,14 @@ class _Task:
             existing.result = None
             existing.error = None
             return existing
-        now = _iso_now()
         self.conn.execute(
             "INSERT INTO mundane_steps "
             "(name, kind, encoding, result, status, started_at) "
             "VALUES (?, ?, ?, NULL, 'pending', ?)",
-            (name, kind, encoding, now),
+            (name, kind, encoding, _iso_now()),
         )
         self.conn.commit()
-        # Re-load row to get id
-        cur = self.conn.execute(
-            "SELECT id, name, kind, encoding, result, status, error "
-            "FROM mundane_steps WHERE name = ?",
-            (name,),
-        )
-        row = cur.fetchone()
-        sr = _StepRow(
-            id=row[0], name=row[1], kind=row[2], encoding=row[3],
-            result=row[4], status=row[5], error=row[6],
-        )
+        sr = _StepRow(name, kind, encoding, None, "pending", None)
         self.cache[name] = sr
         return sr
 
@@ -243,79 +223,68 @@ class Context:
     def __init__(self, task: _Task):
         self._task = task
 
-    def step(self, name: str, fn: Callable[[], Any]) -> Any:
+    def _step_begin(self, name: str) -> tuple[bool, Any]:
+        """Return (hit, value) on a cached 'done' row; else ensure a pending row
+        and return (False, None). The caller runs fn and calls _step_commit."""
         validate_name(name)
         self._task._check_seen(name)
-        resolved = name
-        row = self._task.cache.get(resolved)
+        row = self._task.cache.get(name)
         if row is not None and row.status == "done":
-            return _decode_result(row)
-        # pending or absent: ensure row, run fn, commit
-        self._task._ensure_pending_row(resolved, "step", "json")
-        try:
-            value = fn()
-        except Exception as e:
-            self._task._commit_failed(resolved, repr(e))
-            raise StepFailedError(resolved, e) from e
+            return True, _decode_result(row)
+        self._task._ensure_pending_row(name, "step", "json")
+        return False, None
+
+    def _step_commit(self, name: str, value: Any) -> Any:
         text = _check_json_roundtrip(value)
-        self._task._commit_done(resolved, "json", text)
+        self._task._commit_done(name, "json", text)
         # Return the round-tripped value so first run and resume agree exactly.
         return json.loads(text)
 
-    def sleep(self, name: str, duration: Union[str, int, float]) -> None:
+    def _resolve_wake_at(self, name: str, duration: Union[str, int, float]) -> int:
+        """Wake-time (epoch ms) for a sleep: cached on resume, else computed and
+        written. On resume the duration arg is ignored (SPEC §6)."""
         validate_name(name)
         self._task._check_seen(name)
-        resolved = name
-        row = self._task.cache.get(resolved)
+        row = self._task.cache.get(name)
         if row is not None and row.status == "done":
-            # Resume: duration arg is ignored (SPEC §6); don't parse it.
-            wake_at = _decode_result(row)
-            self._sleep_remaining(int(wake_at))
-            return
-        # absent / pending: compute wake_at, write json-number row, sleep.
+            return int(_decode_result(row))
         wake_at = _now_ms() + _duration_to_ms(duration)
-        self._task._ensure_pending_row(resolved, "sleep", "json")
-        self._task._commit_done(resolved, "json", str(wake_at))
-        self._sleep_remaining(wake_at)
+        self._task._ensure_pending_row(name, "sleep", "json")
+        self._task._commit_done(name, "json", str(wake_at))
+        return wake_at
 
-    def _sleep_remaining(self, wake_at_ms: int) -> None:
-        now = _now_ms()
-        remaining = wake_at_ms - now
+    def step(self, name: str, fn: Callable[[], Any]) -> Any:
+        hit, value = self._step_begin(name)
+        if hit:
+            return value
+        try:
+            result = fn()
+        except Exception as e:
+            self._task._commit_failed(name, repr(e))
+            raise StepFailedError(name, e) from e
+        return self._step_commit(name, result)
+
+    def sleep(self, name: str, duration: Union[str, int, float]) -> None:
+        wake_at = self._resolve_wake_at(name, duration)
+        remaining = wake_at - _now_ms()
         if remaining > 0:
             time.sleep(remaining / 1000.0)
 
     # ---- async variants ----
 
     async def astep(self, name: str, fn: Callable[[], Awaitable[Any]]) -> Any:
-        validate_name(name)
-        self._task._check_seen(name)
-        resolved = name
-        row = self._task.cache.get(resolved)
-        if row is not None and row.status == "done":
-            return _decode_result(row)
-        self._task._ensure_pending_row(resolved, "step", "json")
+        hit, value = self._step_begin(name)
+        if hit:
+            return value
         try:
-            value = await fn()
+            result = await fn()
         except Exception as e:
-            self._task._commit_failed(resolved, repr(e))
-            raise StepFailedError(resolved, e) from e
-        text = _check_json_roundtrip(value)
-        self._task._commit_done(resolved, "json", text)
-        # Return the round-tripped value so first run and resume agree exactly.
-        return json.loads(text)
+            self._task._commit_failed(name, repr(e))
+            raise StepFailedError(name, e) from e
+        return self._step_commit(name, result)
 
     async def asleep(self, name: str, duration: Union[str, int, float]) -> None:
-        validate_name(name)
-        self._task._check_seen(name)
-        resolved = name
-        row = self._task.cache.get(resolved)
-        if row is not None and row.status == "done":
-            # Resume: duration arg is ignored (SPEC §6); don't parse it.
-            wake_at = int(_decode_result(row))
-        else:
-            wake_at = _now_ms() + _duration_to_ms(duration)
-            self._task._ensure_pending_row(resolved, "sleep", "json")
-            self._task._commit_done(resolved, "json", str(wake_at))
+        wake_at = self._resolve_wake_at(name, duration)
         remaining = wake_at - _now_ms()
         if remaining > 0:
             await asyncio.sleep(remaining / 1000.0)
@@ -368,20 +337,15 @@ def _open_task(path: str) -> tuple[FileLock, sqlite3.Connection, _Task]:
             statements = [s.strip() for s in BOOTSTRAP_SQL.split(";") if s.strip()]
             for stmt in statements:
                 conn.execute(stmt)
-            now_iso = _iso_now()
-            new_uuid = str(uuid.uuid4())
-            conn.execute(
-                "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('schema_version', ?)",
-                (SCHEMA_VERSION,),
-            )
-            conn.execute(
-                "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('task_id', ?)",
-                (new_uuid,),
-            )
-            conn.execute(
-                "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES ('created_at', ?)",
-                (now_iso,),
-            )
+            for key, value in (
+                ("schema_version", SCHEMA_VERSION),
+                ("task_id", str(uuid.uuid4())),
+                ("created_at", _iso_now()),
+            ):
+                conn.execute(
+                    "INSERT OR IGNORE INTO mundane_meta (key, value) VALUES (?, ?)",
+                    (key, value),
+                )
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")

@@ -2,6 +2,7 @@ package mundane
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,7 +10,6 @@ import (
 )
 
 type StepRow struct {
-	ID       int64
 	Name     string
 	Kind     string
 	Encoding string
@@ -39,7 +39,7 @@ func newCtx(db *sql.DB) (*Ctx, error) {
 
 func (c *Ctx) loadCache() error {
 	rows, err := c.db.Query(
-		"SELECT id, name, kind, encoding, result, status, COALESCE(error, '') " +
+		"SELECT name, kind, encoding, result, status, COALESCE(error, '') " +
 			"FROM mundane_steps ORDER BY id",
 	)
 	if err != nil {
@@ -49,7 +49,7 @@ func (c *Ctx) loadCache() error {
 	for rows.Next() {
 		var r StepRow
 		var raw []byte
-		if err := rows.Scan(&r.ID, &r.Name, &r.Kind, &r.Encoding, &raw, &r.Status, &r.Err); err != nil {
+		if err := rows.Scan(&r.Name, &r.Kind, &r.Encoding, &raw, &r.Status, &r.Err); err != nil {
 			return fmt.Errorf("scan step row: %w", err)
 		}
 		r.Result = raw
@@ -85,7 +85,7 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 			// Decode the stored JSON straight into T (not via `any`), so int64
 			// precision survives the round-trip just as it does on write.
 			var out T
-			if err := jsonUnmarshal(cached.Result, &out); err != nil {
+			if err := json.Unmarshal(cached.Result, &out); err != nil {
 				return zero, fmt.Errorf("decode cached step %q: %w", name, err)
 			}
 			return out, nil
@@ -123,7 +123,7 @@ func Step[T any](ctx *Ctx, name string, fn func() (T, error)) (T, error) {
 	// Return the round-tripped value (decoded into T) so the first run and a
 	// later cache hit yield identical values, even for `any`-typed results.
 	var out T
-	if err := jsonUnmarshal([]byte(text), &out); err != nil {
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		return zero, fmt.Errorf("decode step %q result: %w", name, err)
 	}
 	return out, nil
@@ -255,26 +255,14 @@ func ensurePending(db *sql.DB, cache map[string]*StepRow, name, kind, encoding s
 		existing.Err = ""
 		return nil
 	}
-	now := IsoNow()
 	if _, err := db.Exec(
 		"INSERT OR IGNORE INTO mundane_steps (name, kind, encoding, status, started_at) "+
 			"VALUES (?, ?, ?, 'pending', ?)",
-		name, kind, encoding, now,
+		name, kind, encoding, IsoNow(),
 	); err != nil {
 		return fmt.Errorf("insert pending: %w", err)
 	}
-	row := db.QueryRow(
-		"SELECT id, name, kind, encoding, result, status, COALESCE(error, '') "+
-			"FROM mundane_steps WHERE name = ?",
-		name,
-	)
-	var r StepRow
-	var raw []byte
-	if err := row.Scan(&r.ID, &r.Name, &r.Kind, &r.Encoding, &raw, &r.Status, &r.Err); err != nil {
-		return fmt.Errorf("read back pending row: %w", err)
-	}
-	r.Result = raw
-	cache[name] = &r
+	cache[name] = &StepRow{Name: name, Kind: kind, Encoding: encoding, Status: StatusPending}
 	return nil
 }
 
@@ -307,12 +295,12 @@ func commitFailed(db *sql.DB, name, errMsg string) error {
 // remarshal converts a generic decoded JSON value into the caller's target type T.
 func remarshal[T any](v any) (T, error) {
 	var zero T
-	text, err := jsonMarshal(v)
+	text, err := json.Marshal(v)
 	if err != nil {
 		return zero, err
 	}
 	var out T
-	if err := jsonUnmarshal(text, &out); err != nil {
+	if err := json.Unmarshal(text, &out); err != nil {
 		return zero, err
 	}
 	return out, nil

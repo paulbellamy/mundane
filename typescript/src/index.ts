@@ -27,7 +27,6 @@ export { DuplicateStepError, LockedError, SchemaError, SerializationError, StepF
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
 interface StepRow {
-  id: number;
   name: string;
   kind: "step" | "sleep";
   encoding: "json" | "bytes";
@@ -137,7 +136,7 @@ class TaskState {
 
   private async loadCache(): Promise<void> {
     const rows = await this.db.all<StepRow>(
-      "SELECT id, name, kind, encoding, result, status, error FROM mundane_steps ORDER BY id",
+      "SELECT name, kind, encoding, result, status, error FROM mundane_steps ORDER BY id",
     );
     for (const row of rows) this.cache.set(row.name, row);
   }
@@ -163,16 +162,12 @@ class TaskState {
       existing.error = null;
       return existing;
     }
-    const now = new Date().toISOString();
     await this.db.run(
       "INSERT INTO mundane_steps (name, kind, encoding, result, status, started_at) " +
         "VALUES (?, ?, ?, NULL, 'pending', ?)",
-      [name, kind, encoding, now],
+      [name, kind, encoding, new Date().toISOString()],
     );
-    const row = (await this.db.get<StepRow>(
-      "SELECT id, name, kind, encoding, result, status, error FROM mundane_steps WHERE name = ?",
-      [name],
-    ))!;
+    const row: StepRow = { name, kind, encoding, result: null, status: "pending", error: null };
     this.cache.set(name, row);
     return row;
   }
@@ -253,13 +248,7 @@ class ContextImpl implements Context {
 }
 
 export async function run<T>(path: string, fn: (ctx: Context) => Promise<T> | T): Promise<T> {
-  let lock: AcquiredLock;
-  try {
-    lock = await acquireLock(path);
-  } catch (e) {
-    if (e instanceof LockedError) throw e;
-    throw e;
-  }
+  const lock: AcquiredLock = await acquireLock(path);
   let db: Db | null = null;
   try {
     db = await openDb(path);

@@ -3,6 +3,7 @@ package mundane
 import (
 	"errors"
 	"os"
+	"strconv"
 
 	"golang.org/x/sys/unix"
 )
@@ -58,27 +59,9 @@ func SetCloseOnExec(fd int) error {
 
 // LockFDFromEnv parses MUNDANE_LOCK_FD; returns -1 if unset or invalid.
 func LockFDFromEnv() int {
-	v := os.Getenv("MUNDANE_LOCK_FD")
-	if v == "" {
-		return -1
-	}
-	var n int
-	_, err := parseInt(v, &n)
+	n, err := strconv.Atoi(os.Getenv("MUNDANE_LOCK_FD"))
 	if err != nil || n < 0 {
 		return -1
 	}
 	return n
-}
-
-func parseInt(s string, out *int) (int, error) {
-	n := 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return 0, errors.New("non-digit in fd")
-		}
-		n = n*10 + int(c-'0')
-	}
-	*out = n
-	return n, nil
 }
