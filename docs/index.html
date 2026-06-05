@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>mundane — durable execution, one SQLite file</title>
+  <meta name="description" content="A tiny durable-execution library. One workflow run is one SQLite file. Crash, re-invoke, resume. No daemon, no broker, no scheduler — bring your own cron. Shell, Go, Python, TypeScript." />
+  <meta property="og:title" content="mundane — it's a file. That's the feature." />
+  <meta property="og:description" content="One workflow run is one SQLite file. Crash, re-invoke, resume. No daemon, no broker, no scheduler." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#09090b" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%2318181b'/><text x='8' y='12' font-family='monospace' font-size='12' font-weight='700' fill='%23f59e0b' text-anchor='middle'>m</text></svg>" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script>
+    /* set theme before paint — no flash */
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100 selection:bg-amber-400 selection:text-zinc-900">
+
+  <!-- ===================== header ===================== -->
+  <header class="sticky top-0 z-40 border-b border-zinc-200/70 bg-white/80 backdrop-blur dark:border-zinc-800/70 dark:bg-zinc-950/80">
+    <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+      <a href="#top" class="flex items-center gap-2 font-mono text-[15px] font-semibold tracking-tight">
+        <span class="grid h-6 w-6 place-items-center rounded bg-zinc-900 text-sm font-bold text-amber-400 dark:bg-zinc-800">m</span>
+        mundane
+      </a>
+
+      <nav data-spy class="hidden items-center gap-7 text-sm text-zinc-600 md:flex dark:text-zinc-400">
+        <a href="#idea" class="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">The idea</a>
+        <a href="#quickstart" class="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">Quickstart</a>
+        <a href="#recipes" class="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">Recipes</a>
+        <a href="#rules" class="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">Limits</a>
+        <a href="#runtimes" class="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">Runtimes</a>
+      </nav>
+
+      <div class="flex items-center gap-1">
+        <button data-theme-toggle aria-label="Toggle dark mode" class="grid h-9 w-9 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+          <svg class="h-5 w-5 dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+          <svg class="hidden h-5 w-5 dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+        <a href="https://github.com/paulbellamy/mundane" aria-label="GitHub repository" class="grid h-9 w-9 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.9c-2.78.62-3.37-1.21-3.37-1.21-.46-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.85.09-.66.35-1.12.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.3 9.3 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+        </a>
+        <button data-nav-toggle aria-label="Toggle menu" class="grid h-9 w-9 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-100 md:hidden dark:hover:bg-zinc-800">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- mobile menu -->
+    <div data-nav class="hidden border-t border-zinc-200 px-6 py-3 md:hidden dark:border-zinc-800">
+      <div class="flex flex-col gap-1 text-sm">
+        <a href="#idea" class="rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">The idea</a>
+        <a href="#quickstart" class="rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">Quickstart</a>
+        <a href="#recipes" class="rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">Recipes</a>
+        <a href="#rules" class="rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">Limits</a>
+        <a href="#runtimes" class="rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">Runtimes</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== hero ===================== -->
+  <section id="top" class="relative overflow-hidden">
+    <div class="pointer-events-none absolute inset-0 -z-10 opacity-[0.18] dark:opacity-[0.25]" style="background-image:radial-gradient(circle at 1px 1px, rgb(161 161 170) 1px, transparent 0);background-size:22px 22px;"></div>
+    <div class="pointer-events-none absolute left-1/2 top-0 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full bg-amber-400/20 blur-3xl dark:bg-amber-500/10"></div>
+
+    <div class="mx-auto max-w-6xl px-6 pb-20 pt-16 sm:pt-24">
+      <p class="font-mono text-xs uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">Shell · Go · Python · TypeScript</p>
+      <h1 class="mt-5 text-5xl font-semibold leading-[0.95] tracking-tight sm:text-7xl">
+        It's a file.<br /><span class="text-zinc-400 dark:text-zinc-500">That's the feature.</span>
+      </h1>
+      <p class="mt-6 max-w-xl text-lg text-zinc-600 dark:text-zinc-300">
+        One workflow run is one SQLite file. Crash, re-invoke, resume.
+      </p>
+      <p class="mt-2 font-mono text-sm text-zinc-500 dark:text-zinc-400">No daemon. No broker. No scheduler. Bring your own cron.</p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a href="#quickstart" class="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400">
+          Quickstart
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a href="https://github.com/paulbellamy/mundane" class="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
+          GitHub
+        </a>
+        <a href="https://github.com/paulbellamy/mundane/blob/main/SPEC.md" class="inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
+          Read the spec →
+        </a>
+      </div>
+
+      <div class="mt-14 grid items-start gap-5 lg:grid-cols-5">
+        <!-- terminal card -->
+        <div class="lg:col-span-3">
+          <div class="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-zinc-950/20">
+            <div class="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-3">
+              <span class="h-3 w-3 rounded-full bg-zinc-700"></span>
+              <span class="h-3 w-3 rounded-full bg-zinc-700"></span>
+              <span class="h-3 w-3 rounded-full bg-zinc-700"></span>
+              <span class="ml-2 font-mono text-xs text-zinc-500">workflow.sh</span>
+            </div>
+<pre class="overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">eval <span class="tok-s">"$(mundane init task.db)"</span>        <span class="tok-c"># flock + bootstrap + define step/nap</span>
+step fetch  -- curl -fsS https://api/x   <span class="tok-c"># caches stdout (binary-safe)</span>
+nap  cool   5m
+step notify -- ./send-email.sh</code></pre>
+          </div>
+          <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+            Killed mid-run? Re-invoke the same path. Done steps return cached. The rest pick up where they stopped.
+          </p>
+        </div>
+
+        <!-- install -->
+        <div class="lg:col-span-2">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Install the CLI</p>
+          <div class="mt-3 flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+            <code class="flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-700 dark:text-zinc-300">curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh</code>
+            <button data-copy data-label="copy" data-copy-text="curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh" class="shrink-0 rounded-md border border-zinc-300 px-2 py-1 font-mono text-[11px] text-zinc-500 hover:bg-white hover:text-zinc-900 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">copy</button>
+          </div>
+          <p class="mt-3 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            Detects OS/arch, drops a single Go binary. Or <code class="font-mono text-zinc-600 dark:text-zinc-300">go get</code> / <code class="font-mono text-zinc-600 dark:text-zinc-300">pip install</code> / <code class="font-mono text-zinc-600 dark:text-zinc-300">npm install</code> the SDK — see <a href="#runtimes" class="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-900 dark:decoration-zinc-600 dark:hover:text-zinc-100">runtimes</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== pillars ===================== -->
+  <section class="border-y border-zinc-200 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-900/30">
+    <div class="mx-auto grid max-w-6xl gap-px overflow-hidden px-6 py-px sm:grid-cols-3">
+      <div class="py-10 pr-8">
+        <p class="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">File is the task.</p>
+        <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Path is identity. Same path, same task.</p>
+      </div>
+      <div class="py-10 sm:border-l sm:border-zinc-200 sm:pl-8 sm:pr-8 dark:sm:border-zinc-800">
+        <p class="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">No infrastructure.</p>
+        <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">No daemon, broker, scheduler. Your cron.</p>
+      </div>
+      <div class="py-10 sm:border-l sm:border-zinc-200 sm:pl-8 dark:sm:border-zinc-800">
+        <p class="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">Two primitives.</p>
+        <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Step and nap. That's all.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== the idea ===================== -->
+  <section id="idea" class="scroll-mt-20 py-20 sm:py-28">
+    <div class="mx-auto max-w-3xl px-6">
+      <p class="font-mono text-xs uppercase tracking-widest text-amber-600 dark:text-amber-400">The idea</p>
+      <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Durable execution, minus the machinery.</h2>
+
+      <div class="mt-8 space-y-5 text-lg leading-relaxed text-zinc-700 dark:text-zinc-300">
+        <p>
+          File is the task. Path is the identity. Same path resumes the same task; a different path is a different task.
+          A run is two primitives: <code class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-base text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">step</code>
+          and <code class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-base text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">nap</code>.
+          A done step commits its result and never runs again — later attempts return the cached value. Crash mid-step? The next invocation re-runs only what didn't finish.
+        </p>
+        <p class="font-mono text-base text-zinc-500 dark:text-zinc-400">No daemon. No broker. No scheduler. Bring your own cron.</p>
+        <p>
+          And it's one file. <code class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-base text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">journal_mode=DELETE</code>,
+          so no <code class="font-mono text-base">-wal</code>/<code class="font-mono text-base">-shm</code> siblings — the file is the whole artifact.
+          <code class="font-mono text-base">cp</code> it, <code class="font-mono text-base">mv</code> it, <code class="font-mono text-base">rm</code> it, tarball it, crack it open with <code class="font-mono text-base">sqlite3</code>. Backups: copy the file. Done.
+        </p>
+        <p class="text-base text-zinc-500 dark:text-zinc-400">
+          Inspired by <a href="https://github.com/earendil-works/absurd" class="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-900 dark:decoration-zinc-600 dark:hover:text-zinc-100">Absurd</a> — same "durable workflows are absurdly simple" thesis, Postgres swapped for SQLite, so a workflow is one file you can hold.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== quickstart ===================== -->
+  <section id="quickstart" class="scroll-mt-20 border-t border-zinc-200 bg-zinc-50/60 py-20 sm:py-28 dark:border-zinc-800 dark:bg-zinc-900/30">
+    <div class="mx-auto max-w-4xl px-6">
+      <p class="font-mono text-xs uppercase tracking-widest text-amber-600 dark:text-amber-400">Quickstart</p>
+      <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Zero to resumable.</h2>
+      <p class="mt-5 max-w-2xl text-lg leading-relaxed text-zinc-700 dark:text-zinc-300">
+        Wrap each expensive step. Run it. Kill it mid-way. Run again — finished steps replay from one SQLite file instead of re-executing. No re-charge, no re-send. The file is the task.
+      </p>
+
+      <!-- tabs -->
+      <div data-tabs class="mt-10 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-xl shadow-zinc-950/10">
+        <div role="tablist" class="flex flex-wrap gap-1 border-b border-zinc-800 bg-zinc-900/60 px-2 py-2 font-mono text-xs">
+          <button data-tab="shell" aria-selected="true" class="rounded-md px-3 py-1.5 text-zinc-400 transition-colors hover:text-zinc-100 aria-selected:bg-zinc-800 aria-selected:text-amber-400">Shell</button>
+          <button data-tab="go" aria-selected="false" class="rounded-md px-3 py-1.5 text-zinc-400 transition-colors hover:text-zinc-100 aria-selected:bg-zinc-800 aria-selected:text-amber-400">Go</button>
+          <button data-tab="python" aria-selected="false" class="rounded-md px-3 py-1.5 text-zinc-400 transition-colors hover:text-zinc-100 aria-selected:bg-zinc-800 aria-selected:text-amber-400">Python</button>
+          <button data-tab="ts" aria-selected="false" class="rounded-md px-3 py-1.5 text-zinc-400 transition-colors hover:text-zinc-100 aria-selected:bg-zinc-800 aria-selected:text-amber-400">TypeScript</button>
+        </div>
+
+        <div data-panel="shell" class="border-b border-zinc-800 px-5 py-3 font-mono text-xs text-zinc-500">
+          <span class="text-zinc-300">eval "$(mundane init task.db)"</span> takes the lock, bootstraps the file, defines <span class="text-amber-400">step</span> and <span class="text-amber-400">nap</span>.
+        </div>
+<pre data-panel="shell" class="overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">#!/bin/sh
+eval <span class="tok-s">"$(mundane init task.db)"</span>
+step fetch  -- curl -fsS https://api/x
+nap  cool   5m
+step notify -- ./send-email.sh</code></pre>
+
+        <div data-panel="go" class="hidden border-b border-zinc-800 px-5 py-3 font-mono text-xs text-zinc-500">
+          <span class="text-amber-400">mundane.Run</span> holds the file; <span class="text-amber-400">mundane.Step</span> is generic, so the cached value comes back typed.
+        </div>
+<pre data-panel="go" class="hidden overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">import <span class="tok-s">"github.com/paulbellamy/mundane/go/mundane"</span>
+
+err := mundane.Run(<span class="tok-s">"task.db"</span>, func(ctx *mundane.Ctx) error {
+    user, err := mundane.Step(ctx, <span class="tok-s">"fetch"</span>, func() (User, error) {
+        return fetchUser(id)
+    })
+    if err != nil { return err }
+    return ctx.Sleep(<span class="tok-s">"cool"</span>, <span class="tok-s">"5m"</span>)
+})</code></pre>
+
+        <div data-panel="python" class="hidden border-b border-zinc-800 px-5 py-3 font-mono text-xs text-zinc-500">
+          Plain functions, no decorators. <span class="text-amber-400">mundane.run</span> drives the body. Async: <span class="text-amber-400">mundane.arun</span> with <span class="text-amber-400">ctx.astep</span> / <span class="text-amber-400">ctx.asleep</span>.
+        </div>
+<pre data-panel="python" class="hidden overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">import mundane
+
+def workflow(ctx):
+    user = ctx.step(<span class="tok-s">"fetch"</span>, lambda: requests.get(url).json())
+    ctx.sleep(<span class="tok-s">"cool-off"</span>, <span class="tok-s">"5m"</span>)
+    ctx.step(<span class="tok-s">"notify"</span>, lambda: send_email(user[<span class="tok-s">"email"</span>], <span class="tok-s">"hi"</span>))
+
+mundane.run(<span class="tok-s">"task.db"</span>, workflow)</code></pre>
+
+        <div data-panel="ts" class="hidden border-b border-zinc-800 px-5 py-3 font-mono text-xs text-zinc-500">
+          <span class="text-zinc-300">await run(...)</span> with <span class="text-amber-400">await ctx.step(...)</span> and <span class="text-amber-400">await ctx.sleep(...)</span>. Returns the body's value.
+        </div>
+<pre data-panel="ts" class="hidden overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">import { run } from <span class="tok-s">"mundane-sdk"</span>;
+
+await run(<span class="tok-s">"task.db"</span>, async (ctx) => {
+  const user = await ctx.step(<span class="tok-s">"fetch"</span>, async () => (await fetch(url)).json());
+  await ctx.sleep(<span class="tok-s">"cool-off"</span>, <span class="tok-s">"5m"</span>);
+  await ctx.step(<span class="tok-s">"notify"</span>, async () => { await sendEmail(user.email, <span class="tok-s">"hi"</span>); return null; });
+});</code></pre>
+      </div>
+
+      <!-- payoff -->
+      <div class="mt-8 rounded-r-lg border-l-2 border-amber-500 bg-amber-50 px-5 py-4 dark:bg-amber-500/5">
+        <p class="leading-relaxed text-zinc-700 dark:text-zinc-300">
+          <span class="font-semibold text-zinc-900 dark:text-zinc-100">Second run</span> reopens the same file and reads the rows. Steps marked done return their cached result instantly — <code class="font-mono text-sm">fetch</code> doesn't re-fetch, <code class="font-mono text-sm">notify</code> doesn't re-send. Execution skips straight to where the crash hit. The API call you already paid for stays paid once.
+        </p>
+      </div>
+
+      <!-- two primitives -->
+      <h3 class="mt-16 text-xl font-semibold tracking-tight">Two primitives. That's the whole library.</h3>
+      <div class="mt-6 grid gap-5 sm:grid-cols-2">
+        <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <p class="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">step(name, fn)</p>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+            Runs <code class="font-mono">fn</code> once on a cache miss, caches the JSON result, returns it on every later attempt. Never runs twice for a done step. For work you want at most once: API call, LLM call, email, write.
+          </p>
+        </div>
+        <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <p class="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">nap / sleep(name, duration)</p>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+            Durable sleep. First call records <code class="font-mono">wake_at = now + duration</code>. A resume after a crash sleeps only the remaining time, not the whole duration again. Takes <code class="font-mono">"30s"</code>, <code class="font-mono">"5m"</code>, <code class="font-mono">"2h"</code>, or ms. Shell calls it <code class="font-mono">nap</code>; SDKs call it <code class="font-mono">ctx.sleep</code>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== recipes ===================== -->
+  <section id="recipes" class="scroll-mt-20 py-20 sm:py-28">
+    <div class="mx-auto max-w-5xl px-6">
+      <p class="font-mono text-xs uppercase tracking-widest text-amber-600 dark:text-amber-400">Recipes</p>
+      <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Common jobs, solved.</h2>
+      <p class="mt-4 text-lg text-zinc-600 dark:text-zinc-400">Each maps to a runnable example. Crash, re-invoke, resume.</p>
+
+      <div class="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <h3 class="text-base font-semibold tracking-tight">Stop paying twice for LLM calls</h3>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Wrap each model call as a step. Crash mid-run, re-invoke: finished calls return from the file. You pay only for calls that never finished. Fan-out needs distinct names — <code class="font-mono text-xs">draft-{section}</code>.</p>
+          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/ai-pipeline-python</p>
+        </div>
+        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <h3 class="text-base font-semibold tracking-tight">Run a drip campaign that survives kills</h3>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Each send a step, each gap a nap. Kill it mid-wait, re-invoke: nothing re-sends, and the nap resumes the time left — not a fresh wait.</p>
+          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/onboarding-go</p>
+        </div>
+        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <h3 class="text-base font-semibold tracking-tight">Resume an ETL pipeline mid-flight</h3>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Extract, transform, load — every stage a step. Crash partway, re-invoke: done stages return from the file. No re-pull, no re-transform. Per-record loop uses indexed names — <code class="font-mono text-xs">transform-${id}</code>.</p>
+          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/etl-typescript</p>
+        </div>
+        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <h3 class="text-base font-semibold tracking-tight">Outlive the container</h3>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Put the task file on a Docker volume. The file is the task; the path is its identity. Destroy the container mid-run, recreate, re-invoke: cached steps replay instantly, an interrupted nap resumes its remainder.</p>
+          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/docker-volume</p>
+        </div>
+        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <h3 class="text-base font-semibold tracking-tight">Loop a cron with no scheduler</h3>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Invoke the same script every N minutes. <code class="font-mono text-xs">flock</code> makes overlap harmless — the second exits 75. The cache makes a successful immediate re-run a no-op. Mundane has no scheduler. Bring your own cron.</p>
+        </div>
+        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <h3 class="text-base font-semibold tracking-tight">Inspect a task file without locking it</h3>
+          <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Read-only, no lock. <code class="font-mono text-xs">mundane status</code>, <code class="font-mono text-xs">steps</code>, <code class="font-mono text-xs">get</code>. For raw access, <code class="font-mono text-xs">sqlite3 task.db .dump</code> — the two table names stay stable across v1.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== rules + when-not ===================== -->
+  <section id="rules" class="scroll-mt-20 border-t border-zinc-200 bg-zinc-50/60 py-20 sm:py-28 dark:border-zinc-800 dark:bg-zinc-900/30">
+    <div class="mx-auto grid max-w-5xl gap-12 px-6 lg:grid-cols-2 lg:gap-16">
+      <!-- rules that bite -->
+      <div>
+        <p class="font-mono text-xs uppercase tracking-widest text-amber-600 dark:text-amber-400">Rules that bite</p>
+        <h2 class="mt-3 text-3xl font-semibold tracking-tight">The fine print, up front.</h2>
+        <p class="mt-3 text-zinc-600 dark:text-zinc-400">Break one and durability breaks with you.</p>
+
+        <ul class="mt-8 space-y-5">
+          <li class="border-l-2 border-amber-500 pl-4">
+            <p class="font-semibold">Steps must be idempotent.</p>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Crash mid-step leaves the row <code class="font-mono text-xs">pending</code>; next invocation re-runs it. The contract you sign.</p>
+          </li>
+          <li class="border-l-2 border-amber-500 pl-4">
+            <p class="font-semibold">Step names are strict.</p>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Match <code class="font-mono text-xs">^[A-Za-z0-9][A-Za-z0-9._-]*$</code>. No spaces, slashes, colons, unicode. Duplicate in one body: <code class="font-mono text-xs">DuplicateStepError</code>, exit 2.</p>
+          </li>
+          <li class="border-l-2 border-amber-500 pl-4">
+            <p class="font-semibold">Results must JSON round-trip.</p>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400"><code class="font-mono text-xs">Date</code>, <code class="font-mono text-xs">undefined</code>, <code class="font-mono text-xs">BigInt</code>, <code class="font-mono text-xs">Map</code>/<code class="font-mono text-xs">Set</code>, functions, circular refs throw on first write — at the call site, not silently corrupted.</p>
+          </li>
+          <li class="border-l-2 border-amber-500 pl-4">
+            <p class="font-semibold">Retry == re-invoke.</p>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">A step's nonzero exit or thrown error marks it failed and propagates. No built-in retry, backoff, or timeout.</p>
+          </li>
+          <li class="border-l-2 border-amber-500 pl-4">
+            <p class="font-semibold">One writer per file.</p>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400"><code class="font-mono text-xs">flock</code>. Second concurrent invocation fails fast: exit 75 / <code class="font-mono text-xs">LockedError</code>. No queue. No wait.</p>
+          </li>
+        </ul>
+      </div>
+
+      <!-- when not to use -->
+      <div>
+        <p class="font-mono text-xs uppercase tracking-widest text-amber-600 dark:text-amber-400">When NOT to use it</p>
+        <h2 class="mt-3 text-3xl font-semibold tracking-tight">Small on purpose.</h2>
+        <p class="mt-3 text-zinc-600 dark:text-zinc-400">We are proud of the list. Reach elsewhere when you have:</p>
+
+        <ul class="mt-8 space-y-4 text-sm">
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">A one-shot command, no expensive or non-idempotent steps. The file is pure overhead.</span></li>
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">Request/response or sub-second paths. Every step is a synchronous SQLite write plus flock.</span></li>
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">Concurrency on one task. One writer, period. No fan-out, no parallel, no cross-task signals.</span></li>
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">A real queue, scheduler, broker, or worker pool. No scheduler here; long naps block the process.</span></li>
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">Built-in retry, backoff, or timeout. None exist. Retry == re-invoke.</span></li>
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">Steps you can't make idempotent, or results that aren't JSON.</span></li>
+          <li class="flex gap-3"><span class="select-none font-mono text-zinc-400 dark:text-zinc-600">—</span><span class="text-zinc-600 dark:text-zinc-400">Schema migrations or multiple versions. Files pin to v1; mismatch is a hard error.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== runtimes ===================== -->
+  <section id="runtimes" class="scroll-mt-20 py-20 sm:py-28">
+    <div class="mx-auto max-w-4xl px-6">
+      <p class="font-mono text-xs uppercase tracking-widest text-amber-600 dark:text-amber-400">Runtimes &amp; install</p>
+      <h2 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Four runtimes, one file.</h2>
+      <p class="mt-4 text-lg text-zinc-600 dark:text-zinc-400">One on-disk format, row-for-row interoperable. A file written by one resumes under any other.</p>
+
+      <div class="mt-10 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-zinc-50 font-mono text-xs uppercase tracking-wider text-zinc-500 dark:bg-zinc-900/60 dark:text-zinc-400">
+            <tr>
+              <th class="px-5 py-3 font-medium">Runtime</th>
+              <th class="px-5 py-3 font-medium">Path</th>
+              <th class="px-5 py-3 font-medium">Package</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <tr>
+              <td class="px-5 py-3 font-medium">Shell (CLI)</td>
+              <td class="px-5 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">go/cmd/mundane</td>
+              <td class="px-5 py-3 text-zinc-600 dark:text-zinc-400">single Go binary; <code class="font-mono text-xs">eval</code>-init</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 font-medium">Go SDK</td>
+              <td class="px-5 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">go/mundane</td>
+              <td class="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">github.com/paulbellamy/mundane/go</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 font-medium">TypeScript</td>
+              <td class="px-5 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">typescript/</td>
+              <td class="px-5 py-3 text-zinc-600 dark:text-zinc-400"><code class="font-mono text-xs">mundane-sdk</code> (npm)</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 font-medium">Python</td>
+              <td class="px-5 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">python/</td>
+              <td class="px-5 py-3 text-zinc-600 dark:text-zinc-400"><code class="font-mono text-xs">mundane-sdk</code> (pypi)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-6 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+<pre class="overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100"><span class="tok-c"># Shell</span>
+curl -fsSL https://raw.githubusercontent.com/paulbellamy/mundane/main/install.sh | sh
+<span class="tok-c"># Go</span>
+go get github.com/paulbellamy/mundane/go
+<span class="tok-c"># Python</span>
+pip install mundane-sdk
+<span class="tok-c"># TypeScript</span>
+npm install mundane-sdk</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== footer ===================== -->
+  <footer class="border-t border-zinc-200 dark:border-zinc-800">
+    <div class="mx-auto max-w-6xl px-6 py-12">
+      <div class="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <a href="#top" class="flex items-center gap-2 font-mono text-sm font-semibold">
+            <span class="grid h-6 w-6 place-items-center rounded bg-zinc-900 text-sm font-bold text-amber-400 dark:bg-zinc-800">m</span>
+            mundane
+          </a>
+          <p class="mt-3 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
+            Hat-tip to <a href="https://github.com/earendil-works/absurd" class="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-900 dark:decoration-zinc-600 dark:hover:text-zinc-100">Absurd</a>, which had the thesis first.
+          </p>
+        </div>
+        <nav class="flex flex-wrap gap-x-6 gap-y-2 font-mono text-sm text-zinc-600 dark:text-zinc-400">
+          <a href="https://github.com/paulbellamy/mundane/blob/main/SPEC.md" class="hover:text-zinc-900 dark:hover:text-zinc-100">The full contract (SPEC.md)</a>
+          <a href="https://github.com/paulbellamy/mundane/tree/main/examples" class="hover:text-zinc-900 dark:hover:text-zinc-100">examples/</a>
+          <a href="https://github.com/paulbellamy/mundane" class="hover:text-zinc-900 dark:hover:text-zinc-100">source</a>
+        </nav>
+      </div>
+      <div class="mt-10 border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <p class="font-mono text-sm text-zinc-400 dark:text-zinc-500">Durable execution, one boring file at a time.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
