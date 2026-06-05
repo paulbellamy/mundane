@@ -98,17 +98,39 @@
       <div class="mt-14 grid items-start gap-5 lg:grid-cols-5">
         <!-- terminal card -->
         <div class="lg:col-span-3">
-          <div class="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-zinc-950/20">
-            <div class="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-3">
-              <span class="h-3 w-3 rounded-full bg-zinc-700"></span>
-              <span class="h-3 w-3 rounded-full bg-zinc-700"></span>
-              <span class="h-3 w-3 rounded-full bg-zinc-700"></span>
-              <span class="ml-2 font-mono text-xs text-zinc-500">workflow.sh</span>
+          <div data-tabs class="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-zinc-950/20">
+            <div class="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-2.5">
+              <span class="hidden h-3 w-3 rounded-full bg-zinc-700 sm:block"></span>
+              <span class="hidden h-3 w-3 rounded-full bg-zinc-700 sm:block"></span>
+              <span class="hidden h-3 w-3 rounded-full bg-zinc-700 sm:block"></span>
+              <div role="tablist" class="flex gap-1 font-mono text-[11px] sm:ml-3">
+                <button data-tab="shell" aria-selected="true" class="rounded px-2 py-1 text-zinc-500 transition-colors hover:text-zinc-200 aria-selected:bg-zinc-800 aria-selected:text-amber-400">shell</button>
+                <button data-tab="go" aria-selected="false" class="rounded px-2 py-1 text-zinc-500 transition-colors hover:text-zinc-200 aria-selected:bg-zinc-800 aria-selected:text-amber-400">go</button>
+                <button data-tab="python" aria-selected="false" class="rounded px-2 py-1 text-zinc-500 transition-colors hover:text-zinc-200 aria-selected:bg-zinc-800 aria-selected:text-amber-400">python</button>
+                <button data-tab="ts" aria-selected="false" class="rounded px-2 py-1 text-zinc-500 transition-colors hover:text-zinc-200 aria-selected:bg-zinc-800 aria-selected:text-amber-400">ts</button>
+              </div>
             </div>
-<pre class="overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">eval <span class="tok-s">"$(mundane init task.db)"</span>        <span class="tok-c"># flock + bootstrap + define step/nap</span>
-step fetch  -- curl -fsS https://api/x   <span class="tok-c"># caches stdout (binary-safe)</span>
+<pre data-panel="shell" class="min-h-[196px] overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">eval <span class="tok-s">"$(mundane init task.db)"</span>        <span class="tok-c"># flock + bootstrap</span>
+step fetch  -- curl -fsS https://api/x
 nap  cool   5m
 step notify -- ./send-email.sh</code></pre>
+<pre data-panel="go" class="hidden min-h-[196px] overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">mundane.Run(<span class="tok-s">"task.db"</span>, func(ctx *mundane.Ctx) error {
+    user, err := mundane.Step(ctx, <span class="tok-s">"fetch"</span>, fetchUser)
+    if err != nil { return err }
+    if err := ctx.Sleep(<span class="tok-s">"cool"</span>, <span class="tok-s">"5m"</span>); err != nil { return err }
+    return notify(user)
+})</code></pre>
+<pre data-panel="python" class="hidden min-h-[196px] overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">def workflow(ctx):
+    user = ctx.step(<span class="tok-s">"fetch"</span>, fetch_user)
+    ctx.sleep(<span class="tok-s">"cool"</span>, <span class="tok-s">"5m"</span>)
+    ctx.step(<span class="tok-s">"notify"</span>, lambda: notify(user))
+
+mundane.run(<span class="tok-s">"task.db"</span>, workflow)</code></pre>
+<pre data-panel="ts" class="hidden min-h-[196px] overflow-x-auto p-5 text-[13px] leading-7"><code class="font-mono text-zinc-100">await run(<span class="tok-s">"task.db"</span>, async (ctx) => {
+  const user = await ctx.step(<span class="tok-s">"fetch"</span>, fetchUser);
+  await ctx.sleep(<span class="tok-s">"cool"</span>, <span class="tok-s">"5m"</span>);
+  await ctx.step(<span class="tok-s">"notify"</span>, () => notify(user));
+});</code></pre>
           </div>
           <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
             Killed mid-run? Re-invoke the same path. Done steps return cached. The rest pick up where they stopped.
@@ -272,31 +294,31 @@ await run(<span class="tok-s">"task.db"</span>, async (ctx) => {
       <p class="mt-4 text-lg text-zinc-600 dark:text-zinc-400">Each maps to a runnable example. Crash, re-invoke, resume.</p>
 
       <div class="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+        <a href="https://github.com/paulbellamy/mundane/tree/main/examples/ai-pipeline-python" class="group flex flex-col rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
           <h3 class="text-base font-semibold tracking-tight">Stop paying twice for LLM calls</h3>
           <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Wrap each model call as a step. Crash mid-run, re-invoke: finished calls return from the file. You pay only for calls that never finished. Fan-out needs distinct names — <code class="font-mono text-xs">draft-{section}</code>.</p>
-          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/ai-pipeline-python</p>
-        </div>
-        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <p class="mt-auto flex items-center gap-1.5 pt-4 font-mono text-xs text-zinc-400 transition-colors group-hover:text-amber-600 dark:text-zinc-500 dark:group-hover:text-amber-400">examples/ai-pipeline-python<svg class="h-3 w-3 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></p>
+        </a>
+        <a href="https://github.com/paulbellamy/mundane/tree/main/examples/onboarding-go" class="group flex flex-col rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
           <h3 class="text-base font-semibold tracking-tight">Run a drip campaign that survives kills</h3>
           <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Each send a step, each gap a nap. Kill it mid-wait, re-invoke: nothing re-sends, and the nap resumes the time left — not a fresh wait.</p>
-          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/onboarding-go</p>
-        </div>
-        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <p class="mt-auto flex items-center gap-1.5 pt-4 font-mono text-xs text-zinc-400 transition-colors group-hover:text-amber-600 dark:text-zinc-500 dark:group-hover:text-amber-400">examples/onboarding-go<svg class="h-3 w-3 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></p>
+        </a>
+        <a href="https://github.com/paulbellamy/mundane/tree/main/examples/etl-typescript" class="group flex flex-col rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
           <h3 class="text-base font-semibold tracking-tight">Resume an ETL pipeline mid-flight</h3>
           <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Extract, transform, load — every stage a step. Crash partway, re-invoke: done stages return from the file. No re-pull, no re-transform. Per-record loop uses indexed names — <code class="font-mono text-xs">transform-${id}</code>.</p>
-          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/etl-typescript</p>
-        </div>
-        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <p class="mt-auto flex items-center gap-1.5 pt-4 font-mono text-xs text-zinc-400 transition-colors group-hover:text-amber-600 dark:text-zinc-500 dark:group-hover:text-amber-400">examples/etl-typescript<svg class="h-3 w-3 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></p>
+        </a>
+        <a href="https://github.com/paulbellamy/mundane/tree/main/examples/docker-volume" class="group flex flex-col rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
           <h3 class="text-base font-semibold tracking-tight">Outlive the container</h3>
           <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Put the task file on a Docker volume. The file is the task; the path is its identity. Destroy the container mid-run, recreate, re-invoke: cached steps replay instantly, an interrupted nap resumes its remainder.</p>
-          <p class="mt-4 font-mono text-xs text-zinc-400 dark:text-zinc-500">examples/docker-volume</p>
-        </div>
-        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+          <p class="mt-auto flex items-center gap-1.5 pt-4 font-mono text-xs text-zinc-400 transition-colors group-hover:text-amber-600 dark:text-zinc-500 dark:group-hover:text-amber-400">examples/docker-volume<svg class="h-3 w-3 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></p>
+        </a>
+        <div class="flex flex-col rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
           <h3 class="text-base font-semibold tracking-tight">Loop a cron with no scheduler</h3>
           <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Invoke the same script every N minutes. <code class="font-mono text-xs">flock</code> makes overlap harmless — the second exits 75. The cache makes a successful immediate re-run a no-op. Mundane has no scheduler. Bring your own cron.</p>
         </div>
-        <div class="group rounded-xl border border-zinc-200 p-6 transition-colors hover:border-amber-400/60 dark:border-zinc-800 dark:hover:border-amber-500/40">
+        <div class="flex flex-col rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
           <h3 class="text-base font-semibold tracking-tight">Inspect a task file without locking it</h3>
           <p class="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">Read-only, no lock. <code class="font-mono text-xs">mundane status</code>, <code class="font-mono text-xs">steps</code>, <code class="font-mono text-xs">get</code>. For raw access, <code class="font-mono text-xs">sqlite3 task.db .dump</code> — the two table names stay stable across v1.</p>
         </div>
