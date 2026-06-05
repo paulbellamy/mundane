@@ -1,9 +1,12 @@
 .PHONY: test test-go test-sh test-python test-ts test-conformance test-examples \
-        build build-go build-ts \
+        build build-go build-ts docs \
         lint lint-sh lint-python lint-ts lint-go clean
 
 MUNDANE_BIN := go/mundane-bin
 export MUNDANE_BIN
+
+# Pinned so the committed docs/styles.css is reproducible byte-for-byte.
+TAILWIND_VERSION ?= v4.3.0
 
 test: build test-go test-sh test-python test-ts test-conformance
 
@@ -18,6 +21,22 @@ build-go:
 build-ts:
 	@cd typescript && [ -d node_modules ] || npm install --silent
 	@cd typescript && npx tsc -p .
+
+# Rebuild the static docs CSS from docs/tailwind.css. The page itself is plain
+# hand-written HTML; this just compiles Tailwind to one committed file. Caches
+# the standalone CLI at docs/.tailwindcss (gitignored). No node_modules.
+docs:
+	@cd docs && \
+	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
+	case "$$os" in darwin) os=macos ;; esac; \
+	case "$$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac; \
+	if [ ! -x .tailwindcss ]; then \
+	  echo "fetching tailwindcss $(TAILWIND_VERSION) ($$os-$$arch)"; \
+	  curl -fsSL -o .tailwindcss "https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-$$os-$$arch"; \
+	  chmod +x .tailwindcss; \
+	fi; \
+	./.tailwindcss -i tailwind.css -o styles.css --minify
+	@echo "built docs/styles.css"
 
 lint-sh:
 	@echo "=== shellcheck ==="

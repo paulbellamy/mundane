@@ -1,0 +1,21 @@
+/* Source for docs/styles.css. Rebuild with:  make docs  (or see docs/README.md) */
+@import "tailwindcss";
+
+/* class-based dark mode (toggled on <html> by app.js) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* only scan the docs page + its script */
+@source "./index.html";
+@source "./app.js";
+
+/* code cards are always dark; these tokens are theme-independent */
+.tok-c { color: #8b8b94; font-style: italic; }
+.tok-s { color: #fcd34d; }
+
+/* scroll-spy active nav link */
+[data-spy] a[data-active] { color: #d97706; }
+.dark [data-spy] a[data-active] { color: #fbbf24; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

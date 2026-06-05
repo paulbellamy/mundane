@@ -21,6 +21,9 @@ python/*.egg-info/
 *.db-wal
 *.db-shm
 
+# Docs (cached Tailwind standalone CLI; styles.css IS committed)
+docs/.tailwindcss
+
 # Editors
 .vscode/
 .idea/
