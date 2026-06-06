@@ -1,6 +1,6 @@
 {
   "name": "mundane-sdk",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "Tiny durable-execution: one workflow run is one SQLite file.",
   "license": "MIT",
   "repository": {
